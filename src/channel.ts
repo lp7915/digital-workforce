@@ -1,0 +1,103 @@
+export type ChannelType = "lark" | (string & {});
+
+export type ChannelResource = {
+  id: string;
+  name: string;
+  type: "file" | "image";
+  mimeType?: string;
+};
+
+export type ChannelMessage = {
+  channelType: ChannelType;
+  installationId: string;
+  eventId: string;
+  messageId: string;
+  tenantId: string;
+  conversationId: string;
+  conversationType: "direct" | "group";
+  threadId: string;
+  rootMessageId: string;
+  parentMessageId: string;
+  createTime: number;
+  senderId: string;
+  senderType?: string;
+  text: string;
+  resources: ChannelResource[];
+  mentionedBot: boolean;
+};
+
+export type ChannelHistoryMessage = {
+  messageId: string;
+  senderId: string;
+  senderName?: string;
+  senderType: string;
+  source: "chat" | "thread";
+  text: string;
+  resources?: ChannelResource[];
+  createTime: number;
+  updateTime?: number;
+  threadId?: string;
+  deleted?: boolean;
+  attachmentPending?: boolean;
+};
+
+export type ChannelMessageLookup =
+  | { status: "available"; message: ChannelHistoryMessage }
+  | { status: "deleted" | "not_found" | "unavailable" | "failed" | "timeout" };
+
+export type ChannelReadMessage = (message: ChannelMessage, messageId: string, signal: AbortSignal) => Promise<ChannelMessageLookup>;
+
+export type ReactionQuery = { emoji: "Get" | "OnIt"; reactionId?: string; createdAt?: number };
+export type ReactionObservation = { status: "present"; reactionId: string } | { status: "absent" } | { status: "unknown" };
+export type ChannelInspectReaction = (message: ChannelMessage, query: ReactionQuery, signal: AbortSignal) => Promise<ReactionObservation>;
+
+// 每次投递独立的检查点；onSent仅用于历史去重，不能证明最终正文送达。
+export type ReplyDeliveryEvent =
+  | { type: "begin"; mode: "native_card" | "message" | "sdk_stream"; textFingerprint?: string }
+  | { type: "card_created"; cardId: string; elementId: string }
+  | { type: "sending" }
+  | { type: "sent"; messageIds: string[] }
+  | { type: "content_pending" | "content_confirmed"; sequence: number; contentFingerprint: string }
+  | { type: "finalizing" | "finalized"; sequence: number }
+  | { type: "completed"; contentFingerprint: string };
+export type ReplyDeliveryObserver = (event: ReplyDeliveryEvent) => Promise<void>;
+export type ReplyInspectionQuery =
+  | { mode: "native_card"; messageId: string; elementId: string; contentFingerprint: string }
+  | { mode: "text_messages"; messageIds: string[]; contentFingerprint: string };
+export type ReplyObservation =
+  | { status: "confirmed"; mode?: "native_card"; messageId: string; elementId: string; contentFingerprint: string; observedAt: number }
+  | { status: "confirmed"; mode: "text_messages"; messageIds: string[]; contentFingerprint: string; observedAt: number }
+  | { status: "unknown"; reason: "unsupported" | "unavailable" | "invalid_response" | "identity_mismatch" | "content_mismatch" | "streaming" | "cancelled" };
+export type ChannelInspectReply = (message: ChannelMessage, query: ReplyInspectionQuery, signal: AbortSignal) => Promise<ReplyObservation>;
+
+export type ChannelOutbound =
+  | { type: "text"; text: string }
+  | { type: "markdown"; markdown: string }
+  | { type: "card"; card: Record<string, unknown> };
+
+export type ChannelCapabilities = {
+  cards: boolean;
+  files: boolean;
+  markdown: boolean;
+  reactions: boolean;
+  streaming: boolean;
+  threads: boolean;
+};
+
+export interface ChannelAdapter {
+  readonly channelType: ChannelType;
+  readonly installationId: string;
+  readonly capabilities: Readonly<ChannelCapabilities>;
+  start(handler: (message: ChannelMessage) => void): Promise<void>;
+  stop(): Promise<void>;
+  reply(message: ChannelMessage, outbound: ChannelOutbound, observer?: ReplyDeliveryObserver): Promise<void>;
+  send(conversationId: string, outbound: ChannelOutbound): Promise<void>;
+  streamReply?(message: ChannelMessage, producer: (update: (snapshot: string) => Promise<void>) => Promise<void>, observer?: ReplyDeliveryObserver): Promise<void>;
+  addReaction?(message: ChannelMessage, emojiType: string): Promise<string>;
+  removeReaction?(message: ChannelMessage, reactionId: string): Promise<void>;
+  inspectReaction?: ChannelInspectReaction;
+  inspectReply?: ChannelInspectReply;
+  loadRecentHistory?(message: ChannelMessage): Promise<ChannelHistoryMessage[]>;
+  readMessage?: ChannelReadMessage;
+  download(resource: ChannelResource, message: ChannelMessage, maxBytes?: number): Promise<{ bytes: Uint8Array; mimeType: string }>;
+}
