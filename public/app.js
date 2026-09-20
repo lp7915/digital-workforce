@@ -151,7 +151,7 @@ const stat = (label, value, note) =>
   '<div class="stat"><small>' + label + '</small><strong>' + value + '</strong><p>' + note + '</p></div>';
 function render() {
   page = location.hash.slice(1) || 'employees';
-  if (!['employees', 'projects', 'memories', 'jobs', 'lab', 'access'].includes(page)) page = 'employees';
+  if (!['employees', 'projects', 'memories', 'jobs', 'lab'].includes(page)) page = 'employees';
   document
     .querySelectorAll('[data-nav]')
     .forEach((a) => a.classList.toggle('active', a.dataset.nav === page));
@@ -163,7 +163,6 @@ function render() {
       memories: '项目记忆',
       jobs: '运行与后台任务',
       lab: '本地验收室',
-      access: '访问管理',
     }[page];
   $('#content').innerHTML = {
     employees: employees,
@@ -171,7 +170,6 @@ function render() {
     memories: memories,
     jobs: jobs,
     lab: lab,
-    access: access,
   }[page]();
 }
 function employees() {
@@ -624,22 +622,6 @@ function lab() {
     '</div></div>'
   );
 }
-function access() {
-  return (
-    title('ACCESS & SECURITY', '访问管理', '本机令牌对应服务端角色。项目管理员只能维护获授权项目。') +
-    '<div class="panel"><h3>当前访问身份</h3><div class="badge-row">' +
-    badge(state.principal.role) +
-    '<span class="pill">' +
-    esc(state.principal.id) +
-    '</span></div><p class="muted">服务仅监听 127.0.0.1。登录会话 8 小时有效，使用 HttpOnly / SameSite Cookie。</p></div>' +
-    (admin()
-      ? '<form id="access-form" class="panel"><h3>创建本地访问令牌</h3><p class="muted">项目管理员创建后，需要在项目设置中加入对应用户标识。</p><div class="form-grid">' +
-        field('用户标识', 'id', '', '例如 project-manager') +
-        '<label>角色<select name="role"><option value="project_admin">项目管理员</option><option value="viewer">只读成员</option></select></label></div><button class="primary">创建令牌</button></form>'
-      : '') +
-    '<div class="panel"><h3>真实 Bot 接入边界</h3><p class="muted">一个员工对应一个独立测试 Bot。凭据只放在本机私有配置与 Vault，不能写入 Identity / Knowledge。管理台不自动创建云资源。</p><pre>npm run bot -- --config work/test-bot.json --check\nnpm run bot -- --config work/test-bot.json --start\n# 停止：在 Bot 终端按 Ctrl+C</pre></div>'
-  );
-}
 function modal(html) {
   $('#modal-content').innerHTML = html;
   $('#modal').showModal();
@@ -931,14 +913,6 @@ document.addEventListener('submit', async (event) => {
     if (form.id === 'resource-form') {
       const bind = state.bindings.find((b) => b.id === data.bindingId);
       await api('/resources', { ...data, projectId: bind.projectId });
-    }
-    if (form.id === 'access-form') {
-      const r = await api('/access', data);
-      return modal(
-        '<h2>访问令牌已创建</h2><p class="muted">仅显示一次，请安全保存并配置项目权限。</p><pre>' +
-          esc(r.token) +
-          '</pre>',
-      );
     }
     if (form.id === 'lab-form') {
       const bind = state.bindings.find((b) => b.id === data.binding);

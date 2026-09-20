@@ -20,6 +20,7 @@ test('HTTP后端认证、草稿发布和越权检查真实生效，不接受跨�
     });
   try {
     assert.equal((await fetch(url + '/api/state')).status, 401);
+    assert.equal((await api('/api/access', 'POST', { id: 'new-reader', role: 'viewer' })).status, 404);
     assert.equal((await api('/api/employees', 'POST', { name: '越权' }, 'v'.repeat(48))).status, 403);
     assert.equal(
       (await api('/api/employees', 'POST', { name: '跨站' }, 'a'.repeat(48), 'https://evil.test')).status,

@@ -159,21 +159,6 @@ export async function createWeb(
         }
         if (path === '/api/lab/chat' && method === 'POST')
           return json(res, await lab.chat(actor, await body(req)));
-        if (path === '/api/access' && method === 'POST') {
-          w.admin(actor);
-          const input = await body(req);
-          if (
-            !['project_admin', 'viewer'].includes(input.role) ||
-            typeof input.id !== 'string' ||
-            !input.id.trim() ||
-            input.id.length > 200
-          )
-            throw new DomainError('用户标识或角色无效');
-          const token = randomBytes(32).toString('hex');
-          saveAccessToken(w, { id: input.id, role: input.role }, token);
-          w.audit(actor.id, 'access.create', input.id);
-          return json(res, { token, notice: '仅本次返回，请安全保存；项目管理员须在项目中获授权。' }, 201);
-        }
         const job = path.match(/^\/api\/jobs\/([^/]+)\/retry$/);
         if (job && method === 'POST') {
           const j = w.get<Job>('job', job[1]);
