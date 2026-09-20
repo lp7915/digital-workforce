@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-20",
+  "project": "/path/to/digital-workforce",
+  "url": "http://127.0.0.1:8790",
+  "testCommand": "npm test",
+  "tests": 1757,
+  "passed": 1757,
+  "failed": 0,
+  "skipped": 0,
+  "durationMs": 16317.697208,
+  "syntaxCheck": "passed",
+  "formatCheck": "passed",
+  "build": "passed",
+  "typeCheck": {
+    "compiler": "TypeScript 5.9.3",
+    "command": "tsc --noEmit --allowImportingTsExtensions --module nodenext --target esnext --skipLibCheck src/workforce/*.ts",
+    "result": "passed"
+  },
+  "browser": {
+    "login": "passed",
+    "employeeCreateEditPublish": "passed",
+    "projectAndTwoChatBindings": "passed",
+    "idleMemoryCommitAndCrossChatRead": "passed",
+    "sourceTrace": "passed",
+    "memoryCorrectionAndHistory": "passed",
+    "dataAfterServiceRestart": "passed",
+    "consoleErrors": 0
+  },
+  "upstreamCommit": "1e1b3db8986c836ecd84dd0d21ab17f683015983",
+  "upstreamUnchanged": true,
+  "realFeishuBotStarted": false,
+  "realExternalE2E": "not_run_missing_dedicated_test_credentials",
+  "memoryStorage": "gateway_sqlite",
+  "defaultExtractor": "explicit_confirmed_statements",
+  "maNativeMemoryContract": "unverified"
+}

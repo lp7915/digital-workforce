@@ -109,6 +109,7 @@ for (const status of ["running", "upgrading", "failed", "unknown", "unavailable"
       inspectSessionReadiness: async (sessionId) => { if (status === "unavailable") throw new Error("offline"); return { status, sessionId, agentId: "agent" }; }
     }, async () => {}, options);
     gateway.recoverPendingMessages("lark", "cli"); await gateway.reconcilePendingMessage(first);
+    await until(() => store.inbox.findMessage(first)?.state === "uncertain");
     assert.equal(runs, 0); assert.equal(store.inbox.findMessage(first)!.state, "uncertain");
   } finally { store.close(); files.cleanup(); }
 });

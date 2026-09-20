@@ -9,7 +9,8 @@ import { DatabaseSync } from "node:sqlite";
 import { setImmediate as flush } from "node:timers/promises";
 import { balancedOrder, summarize, traceSynchronousMethods } from "./profile-text-reply-recovery.mjs";
 
-const baselineRef = "1070b63", warmup = 16;
+// 独立仓库的首次提交作为本地比较基线，不依赖上游未复制的 Git 历史。
+const baselineRef = "benchmark-baseline", warmup = 16;
 const reply = "用户凭证仍然有效，已完成本轮测试。";
 const identity = { channelType: "lark", installationId: "fixture-app", tenantId: "fixture-tenant", openId: "fixture-user" };
 const prototypeMessage = { channelType: identity.channelType, installationId: identity.installationId, tenantId: identity.tenantId,

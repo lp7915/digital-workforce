@@ -833,7 +833,23 @@ export class Gateway {
     });
   }
 
-  private async process(message: IncomingMessage, key: ConversationKey, handoff?: SessionHandoff, hasReaction = false, continuation?: string, inboxId?: string, prepared?: InboxPreparation): Promise<void> {
+  private process(message: IncomingMessage, key: ConversationKey, handoff?: SessionHandoff, hasReaction = false, continuation?: string, inboxId?: string, prepared?: InboxPreparation): Promise<void> {
+    if (!this.options.beforeBusinessTurn && !this.options.afterBusinessTurn) return this.processCore(message, key, handoff, hasReaction, continuation, inboxId, prepared);
+    return this.processWithHooks(message, key, handoff, hasReaction, continuation, inboxId, prepared);
+  }
+
+  private async processWithHooks(message: IncomingMessage, key: ConversationKey, handoff?: SessionHandoff, hasReaction = false, continuation?: string, inboxId?: string, prepared?: InboxPreparation): Promise<void> {
+    let failed = true;
+    try {
+      await this.options.beforeBusinessTurn?.(message);
+      await this.processCore(message, key, handoff, hasReaction, continuation, inboxId, prepared);
+      failed = false;
+    } finally {
+      await this.options.afterBusinessTurn?.(message, failed);
+    }
+  }
+
+  private async processCore(message: IncomingMessage, key: ConversationKey, handoff?: SessionHandoff, hasReaction = false, continuation?: string, inboxId?: string, prepared?: InboxPreparation): Promise<void> {
     if (!this.options.platformAccess && message.senderId !== this.options.authorizedUserId) {
       await this.replyText(message, "当前用户未授权。这个版本仅支持 init 时扫码授权的用户，请由该用户私聊或重新运行 init。");
       return;
@@ -1210,6 +1226,7 @@ export class Gateway {
           throw new PreparationCheckpointError("准备期间Session或授权状态已变化，未派发任务");
         }
       }
+      if (this.options.prepareBusinessInput) input = await this.options.prepareBusinessInput(message, sessionId, input);
       let dispatchId: string | undefined;
       if (pdfFiles.length) {
         if (!this.ark.waitForFileActive) throw new Error("当前 Ark 适配器未提供 PDF 文件就绪检查");
@@ -1243,6 +1260,7 @@ export class Gateway {
         result = await this.ark.run(sessionId, input, this.options.timeoutMs, undefined, undefined, assertUserAuthorization, ...(pdfFiles.length ? [pdfFiles] : []));
       }
       if (!result) throw new Error("流式回复结束，但 Agent Session 没有返回结果");
+      if (this.options.observeBusinessResult) await this.options.observeBusinessResult(message, sessionId, result);
       if (result.terminal === "idle" && !result.authorizationRequired) {
         for (const key of inlineDeliveryKeys) this.store.markAttachmentMounted(sessionId, key);
         this.store.completeInlineRestore(sessionId, [...inlineDeliveryKeys]);
@@ -1764,6 +1782,11 @@ export function shouldHandleMessage(message: IncomingMessage): boolean {
 }
 
 export type GatewayOptions = {
+  // 可选业务层钩子；业务存储和权限不暴露为模型工具。
+  beforeBusinessTurn?: (message: IncomingMessage) => Promise<void>;
+  prepareBusinessInput?: (message: IncomingMessage, sessionId: string, input: string) => Promise<string>;
+  observeBusinessResult?: (message: IncomingMessage, sessionId: string, result: RunResult) => Promise<void>;
+  afterBusinessTurn?: (message: IncomingMessage, failed: boolean) => Promise<void>;
   pdfInputMode?: "file" | "sandbox";
   agentId: string;
   environmentId: string;

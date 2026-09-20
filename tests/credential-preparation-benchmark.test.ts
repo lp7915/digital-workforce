@@ -31,7 +31,7 @@ test("small credential benchmark measures both modes through committed terminal 
   });
   assert.equal(child.status, 0, child.stdout + child.stderr);
   const report = JSON.parse(child.stdout);
-  assert.equal(report.baselineRef, "1070b63"); assert.equal(report.samples, 8); assert.equal(report.warmup, 16);
+  assert.equal(report.baselineRef, "benchmark-baseline"); assert.equal(report.samples, 8); assert.equal(report.warmup, 16);
   assert.equal(report.externalServices, "mock"); assert.equal(report.endpoint, "successful_terminal_committed_and_independent_sqlite_read");
   assert.equal(report.groups.length, 4); assert.equal(report.comparisons.length, 2);
   for (const group of report.groups) {

@@ -1,0 +1,69 @@
+import { existsSync, readFileSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
+import { resolve, relative } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { Workforce, MemoryWorker } from './domain.ts';
+import { createWeb, saveAccessToken } from './web.ts';
+import { GatewayStore } from '../store.ts';
+import { ArkClient } from '../ark.ts';
+import { MaExtractor } from './extractor.ts';
+
+const dataDir = resolve(process.env.WORKFORCE_DATA_DIR || 'data');
+mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+const lock = new GatewayStore(resolve(dataDir, 'web-lock.db'));
+lock.acquireRuntimeLock();
+const w = new Workforce(resolve(dataDir, 'workforce.db'));
+const tokenPath = resolve(dataDir, 'admin-token');
+if (!existsSync(tokenPath)) writeFileSync(tokenPath, randomBytes(32).toString('hex'), { mode: 0o600 });
+saveAccessToken(w, { id: 'admin', role: 'admin' }, readFileSync(tokenPath, 'utf8').trim());
+w.recoverJobs();
+let worker = new MemoryWorker(w);
+let extractorMode = 'explicit-confirmation';
+if (process.env.WORKFORCE_EXTRACTOR_CONFIG) {
+  const path = resolve(process.env.WORKFORCE_EXTRACTOR_CONFIG);
+  const rel = relative(process.cwd(), path);
+  if (rel.startsWith('..') || rel.startsWith('/') || statSync(path).mode & 0o077)
+    throw new Error('提炼配置须位于当前项目内并使用600权限');
+  const config = JSON.parse(readFileSync(path, 'utf8'));
+  if (
+    config.dedicatedExtractor !== true ||
+    typeof config.apiKey !== 'string' ||
+    !config.apiKey ||
+    config.apiKey.includes('REPLACE_')
+  )
+    throw new Error('须配置独立后台提炼Agent及密钥');
+  const adapter = new MaExtractor(
+    w,
+    new ArkClient(config.apiKey, 'https://ark.cn-beijing.volces.com/api/v3'),
+    config,
+  );
+  worker = new MemoryWorker(w, (turns, job) => adapter.extract(turns, job));
+  extractorMode = 'dedicated-ma-candidate-filter';
+}
+const port = Number(process.env.WORKFORCE_PORT || '8790');
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('WORKFORCE_PORT 无效');
+const { server, url } = await createWeb(w, { port, extractorMode });
+let ticking = false;
+const interval = setInterval(() => {
+  if (ticking) return;
+  ticking = true;
+  worker
+    .tick()
+    .catch(() => console.error('后台记忆轮询失败，请检查数据库'))
+    .finally(() => {
+      ticking = false;
+    });
+}, 1000);
+console.log(`数字员工本机管理台：${url}\n登录令牌保存在：${tokenPath}\n默认离线验收模式，未启动真实 Bot。`);
+let stopping = false;
+const stop = () => {
+  if (stopping) return;
+  stopping = true;
+  clearInterval(interval);
+  server.close(() => {
+    w.close();
+    lock.close();
+    process.exit(0);
+  });
+};
+process.once('SIGINT', stop);
+process.once('SIGTERM', stop);

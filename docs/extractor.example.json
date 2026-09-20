@@ -1,0 +1,7 @@
+{
+  "dedicatedExtractor": true,
+  "apiKey": "REPLACE_WITH_MA_API_KEY",
+  "agentId": "REPLACE_WITH_SEPARATE_EXTRACTION_AGENT",
+  "version": 1,
+  "environmentId": "REPLACE_WITH_EMPTY_EXTRACTION_ENVIRONMENT"
+}

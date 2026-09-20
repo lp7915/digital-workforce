@@ -1,0 +1,16 @@
+{
+  "dedicatedTestBot": true,
+  "employeeId": "REPLACE_WITH_WEB_EMPLOYEE_ID",
+  "appId": "REPLACE_WITH_DEDICATED_TEST_APP_ID",
+  "appSecret": "REPLACE_WITH_TEST_APP_SECRET",
+  "apiKey": "REPLACE_WITH_MA_API_KEY",
+  "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+  "environmentId": "REPLACE_WITH_TEST_ENVIRONMENT_ID",
+  "botVaultId": "REPLACE_WITH_TEST_BOT_VAULT_ID",
+  "botTokenCredentialId": "REPLACE_WITH_EXISTING_TENANT_TOKEN_CREDENTIAL_ID",
+  "allowedTenantIds": [],
+  "allowedChatIds": [],
+  "allowedUserIds": [],
+  "enableUserOAuth": false,
+  "timeoutMs": 600000
+}

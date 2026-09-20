@@ -29,18 +29,39 @@ test('项目管理员只能管理自己的项目，普通业务身份只读', ()
   const pm = { id: 'pm', role: 'project_admin' } as const;
   w.bind(pm, { employeeId: e.id, projectId: p.id, chatId: 'c', sharedWith: [] });
   const other = w.createProject(admin, { name: '其他项目' });
-  assert.throws(() => w.bind(pm, { employeeId: e.id, projectId: other.id, chatId: 'c', sharedWith: [] }), /权限/);
+  assert.throws(
+    () => w.bind(pm, { employeeId: e.id, projectId: other.id, chatId: 'c', sharedWith: [] }),
+    /权限/,
+  );
   assert.throws(() => w.publish(pm, e.id, 1), /权限/);
   assert.throws(() => w.bind(viewer, { employeeId: e.id, projectId: p.id, chatId: 'x' }), /权限/);
   w.close();
 });
 test('话题继承群项目，每轮快照固定，私聊不读取项目记忆', () => {
   const { w, e, p, release } = fixture();
-  const s = w.beginTurn({ employeeId: e.id, chatId: 'a', threadId: 't', userId: 'u', messageId: 'm', text: '你好', direct: false });
+  const s = w.beginTurn({
+    employeeId: e.id,
+    chatId: 'a',
+    threadId: 't',
+    userId: 'u',
+    messageId: 'm',
+    text: '你好',
+    direct: false,
+  });
   assert.equal(s.projectId, p.id);
   w.saveDraft(admin, e.id, { ...e.draft, rules: '新规则' }, 1);
   w.publish(admin, e.id, 2);
   assert.equal(s.releaseId, release.id);
-  assert.equal(w.beginTurn({ employeeId: e.id, chatId: 'dm', userId: 'u', messageId: 'd', text: '我的日历', direct: true }).projectId, undefined);
+  assert.equal(
+    w.beginTurn({
+      employeeId: e.id,
+      chatId: 'dm',
+      userId: 'u',
+      messageId: 'd',
+      text: '我的日历',
+      direct: true,
+    }).projectId,
+    undefined,
+  );
   w.close();
 });
