@@ -454,27 +454,22 @@ function memoryTreeMarkup(node) {
       .join('') +
     [...node.files]
       .sort((a, b) => a.filename.localeCompare(b.filename))
-      .map(
-        (entry) =>
-          `<button type="button" class="memory-file ${entry.id === selectedMemoryEntry ? 'selected' : ''}" data-action="select-memory" data-id="${esc(entry.id)}" title="${esc(entry.path)}" ${entry.id === selectedMemoryEntry ? 'aria-current="true"' : ''}><span aria-hidden="true">▤</span> ${esc(entry.filename)}</button>`,
+      .map((entry) =>
+        entry.id === selectedMemoryEntry
+          ? `<div class="memory-file selected memory-file-inline"><span aria-hidden="true">▤</span><input id="memory-path-input" aria-label="条目路径（双击或按 F2 修改）" value="${esc(entry.filename)}" title="${esc(entry.path)} · 双击或按 F2 修改路径" readonly /></div>`
+          : `<button type="button" class="memory-file" data-action="select-memory" data-id="${esc(entry.id)}" title="${esc(entry.path)}"><span aria-hidden="true">▤</span> ${esc(entry.filename)}</button>`,
       )
       .join('')
   );
 }
 function memoryDocument(entry) {
   if (!entry) return empty('暂无条目', '添加一个路径和文本内容，开始维护记忆。');
-  const header = `<div class="memory-document-head"><strong class="memory-path">/${esc(entry.path)}</strong><div class="actions"><small class="muted">更新于 ${date(entry.updatedAt)}</small>${editingMemory ? button('取消', 'cancel-memory') + '<button class="primary" type="submit">保存</button>' : button('删除', 'delete-memory', entry.id) + button('编辑', 'edit-memory', entry.id)}</div></div>`;
-  if (editingMemory)
-    return `<form id="memory-entry-form" data-kind="memory" data-id="${esc(entry.id)}">${header}<div class="memory-edit-fields"><input type="hidden" name="storeId" value="${esc(entry.storeId)}" />${field('条目路径', 'path', entry.path, 'notes/brief.md', true)}${field('标题（可选）', 'title', entry.title)}${field('来源说明', 'source', entry.source)}</div><label class="memory-editor-label">文本内容<textarea name="content" class="memory-editor" spellcheck="false" maxlength="30000" required>${esc(entry.content)}</textarea></label><div class="memory-document-foot">纯文本 / Markdown · <span id="save-state">编辑后保存到当前浏览器</span></div></form>`;
-  return `${header}<div class="memory-code" aria-label="条目文本内容">${entry.content
+  return `<form id="memory-entry-form" data-kind="memory" data-id="${esc(entry.id)}"><div class="memory-document-head"><div class="memory-title-actions"><strong id="memory-document-path" class="memory-path">/${esc(entry.path)}</strong>${button('基础信息', 'memory-info', entry.id)}</div><div class="actions">${button('删除', 'delete-memory', entry.id)}${button('取消', 'cancel-memory')}<button class="primary" type="submit">保存</button></div></div>${['storeId', 'path', 'title', 'source'].map((name) => `<input type="hidden" name="${name}" value="${esc(entry[name])}" />`).join('')}<div class="memory-inline-editor"><div id="memory-line-numbers" aria-hidden="true">${entry.content
     .split('\n')
-    .map(
-      (line, index) =>
-        `<div class="memory-code-line"><span class="line-number" aria-hidden="true">${index + 1}</span><pre>${esc(line) || ' '}</pre></div>`,
-    )
+    .map((_, i) => i + 1)
     .join(
-      '',
-    )}</div><div class="memory-document-foot"><span>文本内容 · ${new TextEncoder().encode(entry.content).length} B</span><span>${esc(entry.source || '手动维护')}</span></div>`;
+      '\n',
+    )}</div><textarea aria-label="文本内容" name="content" class="memory-direct-text" spellcheck="false" wrap="off" maxlength="30000" required>${esc(entry.content)}</textarea></div><div class="memory-document-foot"><span id="save-state">点击内容直接编辑 · 双击左侧文件名修改路径</span><span>更新于 ${date(entry.updatedAt)}</span></div></form>`;
 }
 function memoryList(owner, project) {
   migrateMemories(data);
@@ -570,6 +565,18 @@ function editDialog(kind, item = {}) {
       field('记忆库名称', 'name', item.name, '例如 项目共识', true) +
       area('描述', 'description', item.description, 3);
   }
+  if (kind === 'memory-info') {
+    title = '条目基础信息';
+    fields =
+      select(
+        '所属记忆库',
+        'storeId',
+        item.storeId,
+        owner.memoryStores.map((store) => [store.id, store.name]),
+      ) +
+      field('标题（可选）', 'title', item.title) +
+      field('来源说明', 'source', item.source);
+  }
   if (kind === 'group') {
     title = item.id ? '编辑群聊' : '关联群聊';
     fields =
@@ -612,7 +619,7 @@ function editDialog(kind, item = {}) {
   }
   modal(
     title,
-    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'publish' ? '确认发布' : '保存'}</button></div><p class="demo-note">仅更新当前浏览器中的演示数据</p></form>`,
+    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'publish' ? '确认发布' : kind === 'memory-info' ? '应用' : '保存'}</button></div><p class="demo-note">${kind === 'memory-info' ? '应用后，点击内容区顶部的保存，与正文和路径一起保存。' : '仅更新当前浏览器中的演示数据'}</p></form>`,
   );
 }
 function confirmAction(title, text, action, id) {
@@ -645,6 +652,10 @@ document.addEventListener('click', (event) => {
     );
   }
   if (!owner) return;
+  if (action === 'memory-info') {
+    const values = Object.fromEntries(new FormData($('#memory-entry-form')));
+    return editDialog('memory-info', { id, ...values });
+  }
   if (['open-store', 'back-stores', 'select-memory', 'cancel-memory', 'add-memory'].includes(action)) {
     if (dirty) {
       pendingMemoryAction = { action, id };
@@ -770,6 +781,14 @@ document.addEventListener('submit', (event) => {
   if (form.id !== 'dialog-form' && form.id !== 'memory-entry-form') return;
   const kind = form.dataset.kind,
     id = form.dataset.id;
+  if (kind === 'memory-info') {
+    for (const [name, value] of Object.entries(values))
+      $('#memory-entry-form').elements[name].value = value.trim();
+    dirty = true;
+    $('#save-state').textContent = '有未保存的修改';
+    closeModal();
+    return;
+  }
   for (const key of Object.keys(values)) if (key !== 'content') values[key] = values[key].trim();
   if (kind === 'employee') {
     if (!values.name) return toast('请填写名称');
@@ -872,7 +891,50 @@ document.addEventListener('submit', (event) => {
   closeModal();
   commit(kind === 'publish' ? '演示版本已发布' : '已保存');
 });
+function startPathRename() {
+  const input = $('#memory-path-input');
+  if (!input) return;
+  input.readOnly = false;
+  input.value = $('#memory-entry-form').elements.path.value;
+  input.focus();
+  input.select();
+}
+document.addEventListener('dblclick', (event) => {
+  if (event.target.id === 'memory-path-input') startPathRename();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.target.id !== 'memory-path-input') return;
+  if (event.key === 'F2') {
+    event.preventDefault();
+    startPathRename();
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    $('#memory-entry-form').requestSubmit();
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    const entry = context().owner.memories.find((item) => item.id === selectedMemoryEntry);
+    $('#memory-entry-form').elements.path.value = entry.path;
+    event.target.value = entry.path.split('/').at(-1);
+    event.target.readOnly = true;
+    $('#memory-document-path').textContent = '/' + entry.path;
+  }
+});
 document.addEventListener('input', (event) => {
+  if (event.target.id === 'memory-path-input') {
+    $('#memory-entry-form').elements.path.value = event.target.value;
+    $('#memory-document-path').textContent = '/' + event.target.value;
+    dirty = true;
+    $('#save-state').textContent = '有未保存的修改';
+    return;
+  }
+  if (event.target.matches('.memory-direct-text')) {
+    $('#memory-line-numbers').textContent = event.target.value
+      .split('\n')
+      .map((_, i) => i + 1)
+      .join('\n');
+  }
   if (event.target.id === 'search') {
     search = event.target.value;
     applyFilters();
@@ -881,6 +943,14 @@ document.addEventListener('input', (event) => {
     if ($('#save-state')) $('#save-state').textContent = '有未保存的修改';
   }
 });
+document.addEventListener(
+  'scroll',
+  (event) => {
+    if (event.target.matches?.('.memory-direct-text'))
+      $('#memory-line-numbers').scrollTop = event.target.scrollTop;
+  },
+  true,
+);
 document.addEventListener('change', (event) => {
   if (event.target.name === 'typeFilter') {
     typeFilter = event.target.value;
