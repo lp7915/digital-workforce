@@ -811,14 +811,31 @@ function projectDetail(p, section) {
   );
 }
 function runningTasks() {
-  const rows = activeTasks(data.tasks);
+  const history = route().id === 'history';
+  const active = activeTasks(data.tasks);
+  const ended = data.tasks
+    .filter((task) => ['completed', 'cancelled', 'failed'].includes(task.status))
+    .sort((a, b) => (b.finishedAt || '').localeCompare(a.finishedAt || ''))
+    .slice(0, 20);
+  const rows = history ? ended : active;
+  const statuses = history
+    ? [
+        ['completed', '已完成'],
+        ['failed', '失败'],
+        ['cancelled', '已取消'],
+      ]
+    : [
+        ['running', '执行中'],
+        ['queued', '等待中'],
+      ];
+  const labels = Object.fromEntries(statuses);
   return (
     head(
-      '运行中的任务',
+      '任务',
       '本地执行上下文快照，验证员工配置与项目记忆的组装。',
       button('＋ 发起本地任务', 'new-task', '', true),
     ) +
-    `<p class="muted">${rows.filter((r) => r.status === 'running').length} 项执行中 · ${rows.filter((r) => r.status === 'queued').length} 项等待中 · 每 2 秒更新</p><div class="observation-filters"><input id="search" class="search" aria-label="搜索任务" placeholder="搜索任务、员工或项目…" value="${esc(search)}" />${select(
+    `<nav class="detail-tabs task-tabs" aria-label="任务分类"><a href="#tasks" class="${history ? '' : 'active'}" ${history ? '' : 'aria-current="page"'}>运行中 <span class="task-tab-count">${active.length}</span></a><a href="#tasks/history" class="${history ? 'active' : ''}" ${history ? 'aria-current="page"' : ''}>最近结束 <span class="task-tab-count">${ended.length}</span></a></nav><p class="muted">${history ? '显示最近结束的 20 项任务' : `${active.filter((r) => r.status === 'running').length} 项执行中 · ${active.filter((r) => r.status === 'queued').length} 项等待中`} · 每 2 秒更新</p><div class="observation-filters"><input id="search" class="search" aria-label="搜索任务" placeholder="搜索任务、员工或项目…" value="${esc(search)}" />${select(
       '类型',
       'typeFilter',
       typeFilter,
@@ -829,18 +846,8 @@ function runningTasks() {
       ],
     )}${select('状态', 'statusFilter', statusFilter, [
       ['all', '全部状态'],
-      ['running', '执行中'],
-      ['queued', '等待中'],
-    ])}</div><div class="grid compact-cards">${rows.map((row) => `<article class="entity-card" data-search="${esc(row.name + employeeName(row.employeeId) + projectName(row.projectId))}" data-status="${esc(row.status)}" data-type="${esc(row.type)}"><div class="card-top"><span class="muted">本地上下文快照</span>${badge(row.status === 'running' ? '执行中' : '等待中', row.status === 'running' ? 'green' : '')}</div><h3>${esc(row.name)}</h3><p class="card-description">${esc(employeeName(row.employeeId))}<br/>${esc(projectName(row.projectId))}</p><p>${esc(row.progress)}</p><div class="card-footer">${button('取消任务', 'cancel-task', row.id)}${button('查看进度', 'view-task', row.id)}</div></article>`).join('')}</div><div id="filter-empty" hidden>${empty(rows.length ? '没有匹配任务' : '暂无运行中的任务', rows.length ? '调整关键词或筛选条件。' : '点击发起本地任务开始验收。')}</div><details class="panel"><summary>最近结束的任务</summary>${
-      data.tasks
-        .filter((task) => !['queued', 'running'].includes(task.status))
-        .slice(0, 20)
-        .map(
-          (task) =>
-            `<div class="section-toolbar"><span>${esc(task.name)} · ${esc({ completed: '已完成', cancelled: '已取消', failed: '失败' }[task.status])}</span>${button('查看结果', 'view-task', task.id)}</div>`,
-        )
-        .join('') || '<p class="muted">暂无记录</p>'
-    }</details>`
+      ...statuses,
+    ])}</div><div class="grid compact-cards">${rows.map((row) => `<article class="entity-card" data-search="${esc(row.name + employeeName(row.employeeId) + projectName(row.projectId))}" data-status="${esc(row.status)}" data-type="${esc(row.type)}"><div class="card-top"><span class="muted">本地上下文快照</span>${badge(labels[row.status], ['running', 'completed'].includes(row.status) ? 'green' : row.status === 'failed' ? 'red' : '')}</div><h3>${esc(row.name)}</h3><p class="card-description">${esc(employeeName(row.employeeId))}<br/>${esc(projectName(row.projectId))}</p><p>${esc(row.progress)}</p><div class="card-footer">${history ? `<span>${row.finishedAt ? esc(date(row.finishedAt)) : '已结束'}</span>` : button('取消任务', 'cancel-task', row.id)}${button(history ? '查看结果' : '查看进度', 'view-task', row.id)}</div></article>`).join('')}</div><div id="filter-empty" hidden>${empty(rows.length ? '没有匹配任务' : history ? '暂无最近结束的任务' : '暂无运行中的任务', rows.length ? '调整关键词或筛选条件。' : history ? '任务结束后会显示在这里。' : '点击发起本地任务开始验收。')}</div>`
   );
 }
 function applyFilters() {
@@ -1402,9 +1409,7 @@ async function refreshTasks() {
       !document.querySelector('.select-menu:popover-open') &&
       !document.activeElement?.matches('input, [role="combobox"]')
     ) {
-      const historyOpen = $('#content details')?.open;
       render();
-      if ($('#content details')) $('#content details').open = historyOpen;
       taskRenderPending = false;
     }
   } finally {
