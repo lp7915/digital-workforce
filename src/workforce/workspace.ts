@@ -150,12 +150,6 @@ function validateState(value: unknown, previous: RecordData, memoryWrite = false
       text(assignment.role, '项目职责', 2000, true);
       if (!['read', 'write'].includes(assignment.permission)) throw new DomainError('员工记忆权限无效');
     }
-    if (
-      project.groups.some((g: RecordData) =>
-        g.employeeIds.some((id: string) => !project.employees.some((e: RecordData) => e.id === id)),
-      )
-    )
-      throw new DomainError('群内数字员工须保留在项目名单中，请先移出群聊或解除项目关联');
     validateMemories(project);
     const members = records(project.members, '项目成员');
     if (!members.some((member) => member.permission === 'manage'))

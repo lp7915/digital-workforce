@@ -30,8 +30,5 @@ export function syncBotGroup(
   group.employeeIds = group.employeeIds.filter((id: string) => id !== employeeId);
   if (event.joined) group.employeeIds.push(employeeId);
   group.source = 'feishu';
-  const project = current.state.projects.find((p: any) => p.id === group.projectId);
-  if (event.joined && project && !project.employees.some((e: any) => e.id === employeeId))
-    project.employees.push({ id: employeeId, role: '', permission: 'read' });
   workspace.save(current.state, current.revision);
 }

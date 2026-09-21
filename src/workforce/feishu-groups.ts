@@ -143,9 +143,6 @@ export class FeishuGroups {
     group.name = chat.name;
     group.source = 'feishu';
     if (employeeId && !group.employeeIds.includes(employeeId)) group.employeeIds.push(employeeId);
-    const project = latest.state.projects.find((p: any) => p.id === group.projectId);
-    if (employeeId && project && !project.employees.some((e: any) => e.id === employeeId))
-      project.employees.push({ id: employeeId, role: '', permission: 'read' });
     return this.workspace.save(latest.state, latest.revision);
   }
   async add(chatId: string, employeeId: string) {

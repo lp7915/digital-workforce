@@ -489,15 +489,20 @@ export class WorkspaceChannels {
       },
     });
     const allowed = (message: any) => {
-      const employee = this.workspace.read().state.employees.find((e: any) => e.id === b.employeeId);
+      const state = this.workspace.read().state;
+      const employee = state.employees.find((e: any) => e.id === b.employeeId);
       if (!employee?.enabled) return false;
-      return message.conversationType === 'direct'
-        ? true
-        : this.workspace
-            .read()
-            .state.groups.some(
-              (g: any) => g.chatId === message.conversationId && g.employeeIds.includes(b.employeeId),
-            );
+      if (message.conversationType === 'direct') return true;
+      const group = state.groups.find(
+        (g: any) => g.chatId === message.conversationId && g.employeeIds.includes(b.employeeId),
+      );
+      if (!group) return false;
+      if (!group.projectId) return true;
+      return Boolean(
+        state.projects
+          .find((p: any) => p.id === group.projectId)
+          ?.employees.some((e: any) => e.id === b.employeeId),
+      );
     };
     const memory = new SessionMemory(
       this.workspace,

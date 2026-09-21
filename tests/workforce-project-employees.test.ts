@@ -24,6 +24,12 @@ test('群事件重复和乱序不会恢复已退群员工，项目关系保留',
     current.state.groups[0].projectId = 'p';
     w.save(current.state, current.revision);
     assert.equal(w.read().state.projects[0].employees[0].id, ada.employeeId);
+    const restricted = w.read();
+    restricted.state.projects[0].employees = [];
+    w.save(restricted.state, restricted.revision);
+    syncBotGroup(w, ada.employeeId, { chatId: 'oc_demo', joined: true, time: 15 });
+    assert.deepEqual(w.read().state.projects[0].employees, []);
+    assert.deepEqual(w.read().state.groups[0].employeeIds, [ada.employeeId]);
     syncBotGroup(w, ada.employeeId, { chatId: 'oc_demo', joined: false, time: 20 });
     syncBotGroup(w, ada.employeeId, { chatId: 'oc_demo', joined: true, time: 10 });
     assert.deepEqual(w.read().state.groups[0].employeeIds, []);
@@ -41,7 +47,12 @@ test('参与其他项目不影响当前群的记忆范围，私聊仍只加载�
     employee.memoryMode = 'ma';
     employee.memoryStores = [{ maStoreId: 'memstore-self' }];
     state.projects = [
-      { id: 'p', employees: [], memoryMode: 'ma', memoryStores: [{ maStoreId: 'memstore-project' }] },
+      {
+        id: 'p',
+        employees: [{ id: ada.employeeId }],
+        memoryMode: 'ma',
+        memoryStores: [{ maStoreId: 'memstore-project' }],
+      },
       {
         id: 'other',
         employees: [{ id: ada.employeeId }],
@@ -53,6 +64,11 @@ test('参与其他项目不影响当前群的记忆范围，私聊仍只加载�
     assert.deepEqual(
       memoryScope(state, ada.employeeId, { conversationId: 'oc_demo', conversationType: 'group' }).storeIds,
       ['memstore-project', 'memstore-self'],
+    );
+    state.projects[0].employees = [];
+    assert.throws(
+      () => memoryScope(state, ada.employeeId, { conversationId: 'oc_demo', conversationType: 'group' }),
+      /项目数字员工/,
     );
     assert.deepEqual(
       memoryScope(state, ada.employeeId, { conversationId: 'dm', conversationType: 'direct' }).storeIds,
