@@ -33,7 +33,9 @@ test("employee prompt clarifies ambiguous requests before using tools", () => {
 
 test("employee runtime never mutates the configured user Agent", async () => {
   const source = await readFile(join(process.cwd(), "src/cli.ts"), "utf8");
-  const runtime = source.slice(source.indexOf("async function runEmployee"), source.indexOf("async function employeeDoctor"));
+  const entry = source.slice(source.indexOf("async function runEmployee"), source.indexOf("async function employeeDoctor"));
+  assert.match(entry, /createEmployeeRuntime\(/);
+  const runtime = entry + await readFile(join(process.cwd(), "src/employee-runtime.ts"), "utf8");
   assert.doesNotMatch(runtime, /\.updateAgent\s*\(/);
   assert.match(runtime, /sharedGroupSessions: true/);
   assert.match(runtime, /message\.conversationType === "direct" \? auth\.vaultIds\(message\) : Promise\.resolve\(\[\]\)/);

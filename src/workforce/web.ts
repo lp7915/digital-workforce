@@ -88,6 +88,11 @@ export async function createWeb(
             return json(res, options.maConfig.save(input?.apiKey));
           }
         }
+        const upgrade = path.match(/^\/api\/workspace\/employees\/([^/]+)\/feishu\/upgrade$/);
+        if (upgrade && options.channels && method === 'POST') {
+          await body(req);
+          return json(res, options.channels.upgradePermissions(decodeURIComponent(upgrade[1])), 202);
+        }
         const channel = path.match(/^\/api\/workspace\/employees\/([^/]+)\/feishu$/);
         if (channel && options.channels) {
           if (method === 'GET') return json(res, options.channels.view(decodeURIComponent(channel[1])));

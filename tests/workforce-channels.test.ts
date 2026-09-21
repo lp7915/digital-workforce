@@ -145,3 +145,72 @@ test('创建中断后，仅明确确认未创建才重新发起', async () => {
     w.close();
   }
 });
+test('已有应用补权固定 App ID，不创建新应用或覆盖 MA 资源', async () => {
+  const w = workspace();
+  let finish: any;
+  const channels = new WorkspaceChannels(w, {
+    dataDir: '/tmp',
+    provision: async () => {},
+    connect: async () => async () => {},
+    register: async (options) => {
+      assert.equal(options.appId, 'cli_existing');
+      assert.notEqual(options.createOnly, true);
+      assert.ok(options.addons?.scopes?.tenant?.includes('cardkit:card:write'));
+      options.onQRCodeReady({ url: 'https://open.feishu.cn/confirm', expireIn: 60 });
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+  w.db.prepare('INSERT INTO workspace_channels VALUES (?,?)').run(
+    'e',
+    JSON.stringify({
+      employeeId: 'e',
+      appId: 'cli_existing',
+      appSecret: 'original-secret',
+      agentId: 'agent_existing',
+      status: 'stopped',
+    }),
+  );
+  try {
+    channels.upgradePermissions('e');
+    assert.equal(channels.view('e').status, 'awaiting_permission_confirmation');
+    finish({ client_id: 'cli_existing', client_secret: 'secret' });
+    await until(() => channels.view('e').status === 'connected');
+    const stored = JSON.parse(
+      (w.db.prepare('SELECT payload FROM workspace_channels WHERE employee_id=?').get('e') as any).payload,
+    );
+    assert.equal(stored.agentId, 'agent_existing');
+    assert.equal(channels.view('e').permissionsVersion, 2);
+    assert.ok(!JSON.stringify(channels.view('e')).includes('secret'));
+  } finally {
+    await channels.stop();
+    w.close();
+  }
+});
+
+test('补权返回其他应用时拒绝替换原绑定', async () => {
+  const w = workspace();
+  const channels = new WorkspaceChannels(w, {
+    dataDir: '/tmp',
+    register: async () => ({ client_id: 'cli_other', client_secret: 'new-secret' }),
+  });
+  w.db.prepare('INSERT INTO workspace_channels VALUES (?,?)').run(
+    'e',
+    JSON.stringify({
+      employeeId: 'e',
+      appId: 'cli_existing',
+      appSecret: 'original-secret',
+      status: 'stopped',
+    }),
+  );
+  try {
+    channels.upgradePermissions('e');
+    await until(() => channels.view('e').status === 'awaiting_permissions');
+    assert.equal(channels.view('e').appId, 'cli_existing');
+    assert.equal(channels.view('e').permissionsVersion, 1);
+  } finally {
+    await channels.stop();
+    w.close();
+  }
+});

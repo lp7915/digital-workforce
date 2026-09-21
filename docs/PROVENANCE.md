@@ -7,6 +7,8 @@
 上游未发现已跟踪 LICENSE/NOTICE；不擅自赋予开源许可，保留来源与现有声明，仅在用户授权的独立本地项目复用，不公开发布。
 复用 MA、Gateway、Channel、流式卡片、附件处理、OAuth 和其依赖状态模块；旧 CLI/init/web 为回归依赖保留，不作为本项目入口，不运行旧部署/初始化流程。
 新增代码位于 src/workforce、public、tests/workforce*；Gateway 的差异为可选业务生命周期钩子，默认路径保持兼容。
+
+2026-09-21 对齐审查后，从原 CLI 的 runEmployee 提取 src/employee-runtime.ts 共用装配，CLI 与工作台共同调用，保留流式卡片、表情、附件、聊天上下文、群聊共享会话、OAuth 及凭证生命周期。工作台使用原 EMPLOYEE_AGENT_CONFIG 和权限集合，现有应用原位补权；Bot 凭证按原 employee-init 的长期 App Secret 方案注入专属 Vault。原项目目录未修改。
 为使既有性能测试在独立仓库可运行，补齐3个测试依赖的脚本，并将性能基线由旧仓库1070b63改为本仓库初始提交benchmark-baseline；计数和终态断言不变。prepared-gateway恢复测试改为等待可观察的uncertain状态，避免把调度完成误认为后台状态已经提交。
 
 # 设计依据
