@@ -27,9 +27,30 @@
         <header>
           <div id="breadcrumb">工作空间</div>
           <div class="header-right">
-            <button type="button" data-action="ma-config">方舟配置</button>
-            <span id="ma-status" class="pill" role="status">正在读取方舟状态</span>
-            <span id="workspace-status" class="pill">正在连接本机服务</span>
+            <button
+              type="button"
+              data-action="ma-config"
+              class="service-config"
+              aria-label="配置方舟服务"
+              title="配置方舟服务"
+            >
+              <span id="ma-status" class="pill" role="status">正在读取方舟状态</span>
+              <svg
+                aria-hidden="true"
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+              >
+                <path d="M4 7h9m4 0h3M4 17h3m4 0h9" />
+                <circle cx="15" cy="7" r="2" />
+                <circle cx="9" cy="17" r="2" />
+              </svg>
+            </button>
+            <span id="workspace-status" class="pill" role="status">正在连接本机服务</span>
           </div>
         </header>
         <main id="content"></main>

@@ -278,11 +278,13 @@ async function connectWorkspace() {
     acceptServer(result);
     connected = true;
     $('#workspace-status').textContent = '本机服务已连接';
+    $('#workspace-status').className = 'pill green';
     void refreshMaStatus();
     render();
   } catch (error) {
     connected = false;
     $('#workspace-status').textContent = '本机服务未连接';
+    $('#workspace-status').className = 'pill red';
     paintMaStatus(null);
     $('#content').innerHTML =
       empty('无法连接本机工作台', esc(error.message)) + button('重试连接', 'reconnect', '', true);
@@ -1584,6 +1586,7 @@ setInterval(() => {
   if (connected && !saving && route().module === 'tasks')
     refreshTasks().catch(() => {
       $('#workspace-status').textContent = '任务更新失败，请检查本机服务';
+      $('#workspace-status').className = 'pill amber';
     });
 }, 2000);
 window.addEventListener('focus', () => {

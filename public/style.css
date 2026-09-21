@@ -474,13 +474,30 @@ header {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-#ma-status::before {
+#ma-status::before,
+#workspace-status::before {
   content: '';
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: currentColor;
   flex-shrink: 0;
+}
+.service-config {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+}
+.service-config:hover {
+  background: #f4f4f5;
+  border-color: transparent;
+  color: var(--ink);
+  filter: none;
 }
 .avatar {
   display: inline-grid;
