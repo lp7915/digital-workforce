@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8'
 function fixture(storage = new Map<string, string>()) {
   return runInNewContext(
     source.slice(0, source.indexOf('let data =')) +
-      '\n({ seed, snapshot, repository, migrateMemories, memoryError });',
+      '\n({ seed, snapshot, repository, migrateMemories, memoryError, activeTasks });',
     {
       structuredClone,
       localStorage: {
@@ -77,4 +77,23 @@ test('浏览器刷新后保留员工配置和项目成员权限', () => {
 test('损坏的本地演示数据不会导致首次页面无法初始化', () => {
   const { repository } = fixture(new Map([['workforce.frontend.v1', 'not-json']]));
   assert.equal(repository.load().employees.length, 2);
+});
+
+test('运行中的任务只包含执行中和等待中的任务', () => {
+  const { activeTasks } = fixture();
+  const rows = ['running', 'queued', 'completed', 'failed', 'cancelled'].map((status) => ({ status }));
+  assert.equal(JSON.stringify(activeTasks(rows)), JSON.stringify(rows.slice(0, 2)));
+});
+
+test('旧浏览器数据补充演示任务且已保存任务不被重新初始化', () => {
+  const { repository, seed } = fixture();
+  const old = seed();
+  old.employees[0].name = '保留名称';
+  repository.save(old);
+  const migrated = repository.load();
+  assert.equal(migrated.employees[0].name, '保留名称');
+  assert.equal(migrated.tasks.length, 3);
+  migrated.tasks = [];
+  repository.save(migrated);
+  assert.equal(repository.load().tasks.length, 0);
 });

@@ -24,6 +24,7 @@ function snapshot(employee) {
   return copy(configuration);
 }
 function migrateMemories(state) {
+  state.tasks ||= initialTasks();
   for (const owner of [...state.employees, ...state.projects]) {
     owner.memoryStores ||= [{ id: 'default', name: '默认记忆库', description: '' }];
     owner.memories.forEach((entry) => {
@@ -32,6 +33,46 @@ function migrateMemories(state) {
     });
   }
   return state;
+}
+function initialTasks() {
+  return [
+    {
+      id: 'task-strategy',
+      name: '整理上市传播建议',
+      type: 'run',
+      status: 'running',
+      employeeId: 'brand',
+      projectId: 'launch',
+      progress: '正在整理策略建议',
+      detail: '根据项目 Brief 和已确认的项目记忆，整理传播方向与执行建议。',
+      steps: ['已完成 · 读取项目上下文', '进行中 · 整理策略建议', '待执行 · 生成交付内容'],
+    },
+    {
+      id: 'task-memory',
+      name: '整理项目会议共识',
+      type: 'memory',
+      status: 'running',
+      employeeId: 'brand',
+      projectId: 'launch',
+      progress: '正在提炼已确认的共识',
+      detail: '整理会议中的已确认内容，准备更新项目记忆条目。',
+      steps: ['已完成 · 整理会议内容', '进行中 · 提炼项目共识', '待执行 · 更新记忆条目'],
+    },
+    {
+      id: 'task-content',
+      name: '生成上市内容初稿',
+      type: 'run',
+      status: 'queued',
+      employeeId: 'content',
+      projectId: 'launch',
+      progress: '等待策略建议完成',
+      detail: '策略建议完成后，生成上市传播内容初稿。',
+      steps: ['等待中 · 策略建议', '待执行 · 撰写内容初稿'],
+    },
+  ];
+}
+function activeTasks(tasks) {
+  return tasks.filter((task) => task.status === 'running' || task.status === 'queued');
 }
 function memoryError(owner, values, id) {
   if (!owner.memoryStores.some((store) => store.id === values.storeId)) return '请选择记忆库';
@@ -188,7 +229,7 @@ const date = (value) =>
     hour: '2-digit',
     minute: '2-digit',
   });
-const names = { employees: '数字员工', projects: '项目', observations: '观测' };
+const names = { employees: '数字员工', projects: '项目', tasks: '运行中的任务' };
 const employeeTabs = {
   basic: '基础信息',
   identity: '身份',
@@ -277,7 +318,7 @@ function render() {
       ? projectDetail(project, projectTabs[section] ? section : 'memories')
       : empty('项目不存在', '请从项目列表重新选择。');
   } else {
-    $('#content').innerHTML = module === 'observations' ? observations() : overview(module);
+    $('#content').innerHTML = module === 'tasks' ? runningTasks() : overview(module);
   }
   applyFilters();
 }
@@ -409,19 +450,11 @@ function projectDetail(p, section) {
     content
   );
 }
-function observations() {
-  const rows = data.observations;
+function runningTasks() {
+  const rows = activeTasks(data.tasks);
   return (
-    head('观测', '查看员工运行与记忆任务，定位异常。') +
-    `<div class="stats observation-stats">${[
-      ['总记录', rows.length],
-      ['已完成', rows.filter((r) => r.status === 'completed').length],
-      ['待关注', rows.filter((r) => r.status === 'failed').length],
-    ]
-      .map(([label, count]) => `<div class="stat"><small>${label}</small><strong>${count}</strong></div>`)
-      .join(
-        '',
-      )}</div><div class="observation-filters"><input id="search" class="search" aria-label="搜索运行记录" placeholder="搜索运行记录…" value="${esc(search)}" />${select(
+    head('运行中的任务', '查看数字员工正在处理和等待执行的任务。') +
+    `<p class="muted">${rows.filter((r) => r.status === 'running').length} 项执行中 · ${rows.filter((r) => r.status === 'queued').length} 项等待中 · 演示进度，不自动更新</p><div class="observation-filters"><input id="search" class="search" aria-label="搜索任务" placeholder="搜索任务、员工或项目…" value="${esc(search)}" />${select(
       '类型',
       'typeFilter',
       typeFilter,
@@ -432,9 +465,9 @@ function observations() {
       ],
     )}${select('状态', 'statusFilter', statusFilter, [
       ['all', '全部状态'],
-      ['completed', '已完成'],
-      ['failed', '异常'],
-    ])}</div><div class="grid compact-cards">${rows.map((row) => `<article class="entity-card" data-search="${esc(row.name + employeeName(row.employeeId) + projectName(row.projectId))}" data-status="${row.status}" data-type="${row.type}"><div class="card-top"><span class="muted">${row.type === 'run' ? '员工运行' : '记忆任务'}</span>${badge(row.status === 'completed' ? '已完成' : '异常', row.status === 'completed' ? 'green' : 'red')}</div><h3>${esc(row.name)}</h3><p class="card-description">${esc(employeeName(row.employeeId))}<br/>${esc(projectName(row.projectId))}</p><div class="card-footer"><span>${date(row.time)} · ${row.duration}</span>${button('查看详情', 'view-run', row.id)}</div></article>`).join('')}</div><div id="filter-empty" hidden>${empty('没有匹配记录', '调整关键词或筛选条件。')}</div>`
+      ['running', '执行中'],
+      ['queued', '等待中'],
+    ])}</div><div class="grid compact-cards">${rows.map((row) => `<article class="entity-card" data-search="${esc(row.name + employeeName(row.employeeId) + projectName(row.projectId))}" data-status="${esc(row.status)}" data-type="${esc(row.type)}"><div class="card-top"><span class="muted">${row.type === 'run' ? '员工任务' : '记忆任务'}</span>${badge(row.status === 'running' ? '执行中' : '等待中', row.status === 'running' ? 'green' : '')}</div><h3>${esc(row.name)}</h3><p class="card-description">${esc(employeeName(row.employeeId))}<br/>${esc(projectName(row.projectId))}</p><p>${esc(row.progress)}</p><div class="card-footer"><span>演示任务</span>${button('查看进度', 'view-task', row.id)}</div></article>`).join('')}</div><div id="filter-empty" hidden>${empty(rows.length ? '没有匹配任务' : '暂无运行中的任务', rows.length ? '调整关键词或筛选条件。' : '数字员工开始执行任务后，将在这里显示。')}</div>`
   );
 }
 function applyFilters() {
@@ -547,11 +580,11 @@ document.addEventListener('click', (event) => {
   if (action === 'new-employee') return editDialog('employee');
   if (action === 'new-project') return editDialog('project');
   if (action === 'edit-project') return editDialog('project', owner);
-  if (action === 'view-run') {
-    const row = data.observations.find((r) => r.id === id);
+  if (action === 'view-task') {
+    const row = data.tasks.find((r) => r.id === id);
     return modal(
       row.name,
-      `<p class="muted">演示记录 · ${date(row.time)} · ${esc(row.duration)}</p><p>${esc(row.detail)}</p><ol class="timeline">${row.steps.map((step) => `<li>${esc(step)}</li>`).join('')}</ol>`,
+      `<p class="muted">${esc(employeeName(row.employeeId))} · ${esc(projectName(row.projectId))}</p>${badge(row.status === 'running' ? '执行中' : '等待中')}<p>${esc(row.detail)}</p><ol class="timeline">${row.steps.map((step) => `<li>${esc(step)}</li>`).join('')}</ol><p class="muted">前端演示，尚未连接实时任务状态。</p>`,
     );
   }
   if (!owner) return;
