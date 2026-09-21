@@ -667,7 +667,7 @@ function employeeDetail(e, section) {
           return panel(
             '飞书',
             '用当前飞书账号确认创建应用，绑定后自动启动消息服务。',
-            `<div class="actions">${button('创建应用并接入', 'connect-feishu', '', true)}${button('查看接入状态', 'view-feishu')}</div><p class="muted">应用绑定由后端管理。当前先支持文本对话；豆包接入单独配置。</p>`,
+            `<div class="actions">${button('创建应用并接入', 'connect-feishu', '', true)}${button('查看接入状态', 'view-feishu')}</div>`,
           );
         return panel(
           feishu ? '飞书' : '豆包',
