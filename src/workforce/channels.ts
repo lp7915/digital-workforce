@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { MaConfiguration } from './ma-config.ts';
+import { missingConversationScopes } from './channel-permissions.ts';
 import { resolve } from 'node:path';
 import { registerApp, Client } from '@larksuiteoapi/node-sdk';
 import QRCode from 'qrcode-terminal/vendor/QRCode/index.js';
@@ -31,6 +32,7 @@ type Binding = {
   runtimeVersion?: number;
   credentialId?: string;
   permissionsVersion?: number;
+  permissionWarnings?: string[];
   pendingResource?: string;
   lastReceivedAt?: string;
   lastRepliedAt?: string;
@@ -168,6 +170,7 @@ export class WorkspaceChannels {
       lastReceivedAt: b.lastReceivedAt,
       lastRepliedAt: b.lastRepliedAt,
       permissionsVersion: b.permissionsVersion || 1,
+      permissionWarnings: b.permissionWarnings || [],
     };
   }
   begin(id: string, confirmedNotCreated = false) {
@@ -288,7 +291,9 @@ export class WorkspaceChannels {
         .filter((s) => s.grant_status === 1 && s.scope_type === 'tenant')
         .map((s) => s.scope_name),
     );
-    const missing = resolveLarkBotScopes(DEFAULT_LARK_DOMAINS).filter((scope) => !tenant.has(scope));
+    const missing = missingConversationScopes(tenant);
+    b.permissionWarnings = resolveLarkBotScopes(DEFAULT_LARK_DOMAINS).filter((scope) => !tenant.has(scope));
+    checkpoint();
     if (missing.length)
       throw new MissingPermissions(
         `飞书应用尚缺权限：${missing.join('、')}。请在开放平台确认开通并发布后继续接入`,

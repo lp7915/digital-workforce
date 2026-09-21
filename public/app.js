@@ -601,6 +601,7 @@ async function openFeishu(id, begin = false, confirmedNotCreated = false, upgrad
 function paintFeishu(id, state) {
   if (!$('#modal').open || feishuDialogId !== id || !$('#feishu-progress')) return;
   $('#feishu-progress').innerHTML = `<p role="status">${esc(state.message || state.status)}</p>
+    ${state.permissionWarnings?.length ? `<p class="muted">原权限模板尚未授予：${state.permissionWarnings.map(esc).join('、')}。相关业务操作以飞书实际权限为准，不影响已具备权限的卡片对话。</p>` : ''}
     ${state.status === 'awaiting_permissions' ? button('补齐现有应用权限', 'upgrade-feishu', id, true) : ''}
     ${state.appId && ['stopped', 'awaiting_ma', 'error'].includes(state.status) ? button('继续接入', 'resume-feishu', id, true) : ''}
     ${!state.appId && ['error', 'interrupted'].includes(state.status) ? `<p>若已创建应用，请保留现有应用并联系接入人员核对绑定。</p>${button('我确认尚未创建，重新生成二维码', 'retry-feishu', id, true)}` : ''}
