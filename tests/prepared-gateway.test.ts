@@ -15,6 +15,35 @@ const message = (id: string, extra: Partial<IncomingMessage> = {}): IncomingMess
   tenantId: "tenant", senderId: "user", conversationId: "chat", conversationType: "direct", threadId: "", rootMessageId: "",
   parentMessageId: "", messageId: id, eventId: id, text: id, createTime: 100, resources: [], mentionedBot: false, ...extra });
 const first = message("first");
+test("业务记忆在准备检查点之前注入，实际输入与派发校验一致", async () => {
+  const store = new GatewayStore(":memory:"); store.acquireRuntimeLock();
+  let received = "";
+  try {
+    const gateway = new Gateway(store, { createSession: async () => "session", run: async (_session, input) => { received = input; return done(); } }, async () => {},
+      { ...options, prepareBusinessInput: async (_message, _session, input) => `memory:test\n${input}` });
+    gateway.accept(first);
+    await until(() => store.inbox.findMessage(first)?.state === "completed");
+    assert.ok(received.startsWith("memory:test\n"));
+  } finally { store.close(); }
+});
+
+test("恢复已准备的业务输入时保留原记忆，不重复调用注入钩子", async () => {
+  const files = fixture();
+  exitDuringPreparation(files.path, first, 'extra.prepareBusinessInput = async (_m, _s, input) => "memory:original\\n" + input;');
+  const store = new GatewayStore(files.path); store.acquireRuntimeLock();
+  let received = "";
+  try {
+    const saved = store.inbox.findMessage(first)!;
+    const gateway = new Gateway(store, { createSession: async () => { throw new Error("不能新建"); },
+      inspectSessionReadiness: async sessionId => ({ status: "idle", sessionId, agentId: "agent" }),
+      run: async (_session, input) => { received = input; return done(); } }, async () => {},
+      { ...options, prepareBusinessInput: async () => { throw new Error("不能再次注入"); } });
+    gateway.recoverPendingMessages("lark", "cli");
+    await until(() => store.inbox.findMessage(first)?.state === "completed");
+    assert.equal(received, saved.preparation!.input);
+    assert.ok(received.startsWith("memory:original\n"));
+  } finally { store.close(); files.cleanup(); }
+});
 const done = () => ({ terminal: "idle" as const, messages: ["done"] });
 async function until(check: () => boolean) { for (let n = 0; n < 200 && !check(); n++) await flush(); assert.ok(check()); }
 function fixture() { const dir = mkdtempSync(join(tmpdir(), "ark-prepared-")); return { path: join(dir, "gateway.db"), cleanup: () => rmSync(dir, { recursive: true, force: true }) }; }
