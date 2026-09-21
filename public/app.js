@@ -262,7 +262,7 @@ function employee() {
       '</div>';
   else
     editor =
-      '<form id="draft-form" class="panel"><div class="memory-header"><h3>' +
+      '<form id="draft-form" class="config-form"><section class="panel"><div class="memory-header"><h3>' +
       (tab === 'identity' ? '员工身份 · Identity' : '全局知识 · Knowledge') +
       '</h3><span class="pill">草稿修订 ' +
       e.revision +
@@ -273,15 +273,17 @@ function employee() {
       '</p>' +
       (tab === 'identity'
         ? area('身份、职责与能力边界', 'identity', c.identity, 8) +
-          '<div class="form-grid">' +
+          '</section><section class="panel"><h3>MA 配置</h3><p class="muted">设置员工使用的 Agent 与版本。</p><div class="form-grid">' +
           field('MA Agent ID', 'agentId', c.agentId, '真实测试 Agent ID', !admin()) +
           field('固定 Agent 版本', 'agentVersion', c.agentVersion, '例如 1', !admin()) +
-          '</div>' +
-          field('Skills / Tools 修订标识', 'skillsToolsRevision', c.skillsToolsRevision, '', !admin())
+          '<div class="full">' +
+          field('Skills / Tools 修订标识', 'skillsToolsRevision', c.skillsToolsRevision, '', !admin()) +
+          '</div></div>'
         : area('强制规则 · 每轮必须生效', 'rules', c.rules, 6) +
           area('参考知识 · 空行分段，按需读取', 'knowledge', c.knowledge, 9)) +
+      '</section>' +
       (admin()
-        ? '<div class="actions"><button class="primary">保存草稿</button><button type="button" data-action="preview-draft">预览草稿快照</button><small>保存不会影响已发布版本</small></div>'
+        ? '<div class="actions form-actions"><small>保存不会影响已发布版本</small><button type="button" data-action="preview-draft">预览草稿快照</button><button class="primary">保存草稿</button></div>'
         : '') +
       '</form>';
   return (
@@ -292,7 +294,15 @@ function employee() {
       '管理身份、规则与发布版本。',
       admin() ? button('发布当前草稿', 'publish', '', true) : '',
     ) +
-    '<div class="tabs">' +
+    '<div class="employee-summary"><span>状态<b>' +
+    (active ? '已发布' : '草稿') +
+    '</b></span><span>版本<b>' +
+    (active ? 'v' + active.version : '未发布') +
+    '</b></span><span>关联群聊<b>' +
+    state.bindings.filter((b) => b.employeeId === e.id && b.active).length +
+    '</b></span><span>草稿修订<b>' +
+    e.revision +
+    '</b></span></div><div class="tabs">' +
     [
       ['identity', '身份与职责'],
       ['knowledge', '知识与强制规则'],
@@ -309,9 +319,9 @@ function employee() {
           '</button>',
       )
       .join('') +
-    '</div><div class="two-cols"><div>' +
+    '</div><div class="employee-layout"><div>' +
     editor +
-    '</div><div><div class="panel"><h3>当前服务版本</h3><div class="badge-row">' +
+    '</div><div class="employee-support"><div class="panel"><h3>当前服务版本</h3><div class="badge-row">' +
     badge(active ? 'active' : '未发布') +
     '<span class="pill">' +
     (active ? 'v' + active.version : '—') +
