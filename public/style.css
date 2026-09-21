@@ -23,6 +23,91 @@ body {
 [hidden] {
   display: none !important;
 }
+input[type='hidden'] {
+  display: none;
+}
+.ui-select {
+  display: block;
+  min-width: 0;
+  margin-top: 7px;
+}
+.select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 37px;
+  padding: 8px 12px;
+  border: 1px solid #e1e2e6;
+  border-radius: 7px;
+  background: white;
+  box-shadow: 0 1px 2px #00000004;
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+}
+.select-trigger svg {
+  flex-shrink: 0;
+  color: #91949c;
+}
+.select-value {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.select-trigger[aria-expanded='true'],
+.select-trigger:focus-visible {
+  border-color: #a1a1aa;
+  outline: none;
+  box-shadow: 0 0 0 3px #18181b0c;
+}
+.select-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 4px;
+  background: white;
+  color: #27272a;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  box-shadow:
+    0 8px 24px #18181b12,
+    0 2px 6px #18181b08;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font:
+    13px/1.5 -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+}
+.select-menu:popover-open {
+  display: block;
+}
+.select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 7px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+  overflow-wrap: anywhere;
+}
+.select-option:hover,
+.select-option.highlighted {
+  background: #f4f4f5;
+}
+.select-check {
+  opacity: 0;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.select-option[aria-selected='true'] .select-check {
+  opacity: 1;
+}
 button,
 input,
 textarea,

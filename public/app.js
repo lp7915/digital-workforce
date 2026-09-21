@@ -268,8 +268,117 @@ const field = (label, name, value = '', placeholder = '', required = false) =>
   `<label>${label}<input name="${name}" value="${esc(value)}" placeholder="${esc(placeholder)}" ${required ? 'required' : ''} maxlength="500" /></label>`;
 const area = (label, name, value = '', rows = 7) =>
   `<label>${label}<textarea name="${name}" rows="${rows}" maxlength="30000">${esc(value)}</textarea></label>`;
-const select = (label, name, value, options) =>
-  `<label>${label}<select name="${name}">${options.map(([id, text]) => `<option value="${esc(id)}" ${id === value ? 'selected' : ''}>${esc(text)}</option>`).join('')}</select></label>`;
+let selectCounter = 0;
+const select = (label, name, value, options) => {
+  const id = `select-${++selectCounter}`;
+  const selected = options.find(([key]) => key === value) || options[0];
+  return `<label class="select-field" for="${id}"><span id="${id}-label">${esc(label)}</span><span class="ui-select"><input type="hidden" name="${esc(name)}" value="${esc(selected?.[0] || '')}" /><button type="button" id="${id}" class="select-trigger" role="combobox" aria-labelledby="${id}-label" aria-expanded="false" aria-haspopup="listbox" aria-controls="${id}-list" ${!options.length ? 'disabled' : ''}><span class="select-value">${esc(selected?.[1] || '暂无选项')}</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m8 9 4-4 4 4M8 15l4 4 4-4"/></svg></button><span id="${id}-list" class="select-menu" role="listbox" aria-labelledby="${id}-label" popover="auto">${options.map(([key, text], index) => `<span id="${id}-option-${index}" class="select-option" role="option" aria-selected="${key === selected?.[0]}" data-value="${esc(key)}"><span>${esc(text)}</span><span class="select-check" aria-hidden="true">✓</span></span>`).join('')}</span></span></label>`;
+};
+function openSelect(trigger) {
+  const menu = document.getElementById(trigger.getAttribute('aria-controls'));
+  if (menu.matches(':popover-open')) {
+    menu.hidePopover();
+    return;
+  }
+  menu.showPopover();
+  const rect = trigger.getBoundingClientRect();
+  menu.style.width = Math.min(rect.width, innerWidth - 16) + 'px';
+  menu.style.left = Math.max(8, Math.min(rect.left, innerWidth - menu.offsetWidth - 8)) + 'px';
+  const below = innerHeight - rect.bottom - 12;
+  const above = rect.top - 12;
+  const upwards = below < Math.min(menu.scrollHeight, 240) && above > below;
+  menu.style.maxHeight = Math.max(60, Math.min(280, upwards ? above : below)) + 'px';
+  menu.style.top = (upwards ? Math.max(8, rect.top - menu.offsetHeight - 5) : rect.bottom + 5) + 'px';
+  trigger.setAttribute('aria-expanded', 'true');
+  const selected = menu.querySelector('[aria-selected="true"]') || menu.firstElementChild;
+  focusSelectOption(trigger, selected);
+  menu.ontoggle = () => {
+    const open = menu.matches(':popover-open');
+    trigger.setAttribute('aria-expanded', String(open));
+    if (!open) trigger.removeAttribute('aria-activedescendant');
+  };
+}
+function focusSelectOption(trigger, option) {
+  if (!option) return;
+  const menu = option.parentElement;
+  menu
+    .querySelectorAll('.select-option')
+    .forEach((item) => item.classList.toggle('highlighted', item === option));
+  trigger.setAttribute('aria-activedescendant', option.id);
+  option.scrollIntoView({ block: 'nearest' });
+}
+function chooseSelectOption(option) {
+  const wrapper = option.closest('.ui-select');
+  const input = wrapper.querySelector('input');
+  const trigger = wrapper.querySelector('.select-trigger');
+  input.value = option.dataset.value;
+  trigger.querySelector('.select-value').textContent = option.firstElementChild.textContent;
+  option.parentElement
+    .querySelectorAll('[role="option"]')
+    .forEach((item) => item.setAttribute('aria-selected', String(item === option)));
+  option.parentElement.hidePopover();
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.removeAttribute('aria-activedescendant');
+  trigger.focus();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+function closeSelectMenus() {
+  document.querySelectorAll('.select-menu:popover-open').forEach((menu) => menu.hidePopover());
+}
+window.addEventListener('resize', closeSelectMenus);
+document.addEventListener(
+  'scroll',
+  (event) => {
+    if (!event.target.closest?.('.select-menu')) closeSelectMenus();
+  },
+  true,
+);
+document.addEventListener('click', (event) => {
+  const option = event.target.closest('.select-option');
+  const trigger = event.target.closest('.select-trigger');
+  if (option) {
+    event.preventDefault();
+    chooseSelectOption(option);
+  } else if (trigger) {
+    event.preventDefault();
+    openSelect(trigger);
+  }
+});
+document.addEventListener('keydown', (event) => {
+  const trigger = event.target.closest('.select-trigger');
+  if (!trigger) return;
+  const menu = document.getElementById(trigger.getAttribute('aria-controls'));
+  const open = menu.matches(':popover-open');
+  if (event.key === 'Tab' || event.key === 'Escape') {
+    if (open) {
+      menu.hidePopover();
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.removeAttribute('aria-activedescendant');
+    }
+    if (event.key === 'Escape' && open) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    return;
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', ' '].includes(event.key)) return;
+  event.preventDefault();
+  if (!open) {
+    openSelect(trigger);
+    return;
+  }
+  const options = [...menu.children];
+  const current = options.findIndex((item) => item.id === trigger.getAttribute('aria-activedescendant'));
+  if (event.key === 'Enter' || event.key === ' ') return chooseSelectOption(options[Math.max(0, current)]);
+  const index =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? options.length - 1
+        : (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+  focusSelectOption(trigger, options[index]);
+});
 const panel = (heading, description, body) =>
   `<section class="panel"><h3>${heading}</h3>${description ? `<p class="muted">${description}</p>` : ''}${body}</section>`;
 const empty = (title, description) =>
