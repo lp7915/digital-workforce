@@ -7,14 +7,24 @@
 - Identity：面向品牌营销、策略与商务团队的分析师，先结论后证据，明确事实、计算、推断与假设。
 - Knowledge：艺人画像、内容趋势、聚合受众、品牌适配、公开合作与舆情、效果复盘；配套来源和指标口径规范。
 - Rules：不编造数据与引用，不混算不同平台指标，不以相关性代替因果，不推断隐私或敏感属性，不擅自对外联络与承诺。
-- Skills：需求澄清、数据清洗、画像趋势、品牌适配与对比、公开舆情核验、方案与复盘。每项包含可编辑的执行步骤。
+- Skills：从 MA 读取、绑定真实 Skill ID 和版本。ADA 使用三个技能：`ada-artist-profile`（数据核验与画像）、`ada-brand-fit`（品牌适配与对比）、`ada-campaign-review`（合作策略与复盘）。
 - Memory：一个方法与模板库，包含 `playbooks/artist-analysis.md`、`templates/brief.md`、`standards/metrics.md`、`templates/evidence-register.md`、`templates/artist-report.md`。
 - 环境：600 秒任务超时配置；模型沿用 MA 默认 Agent 配置。环境字段目前是工作台配置，不代表独立模型部署。
 - 凭证与渠道：默认不含凭证，飞书及豆包未绑定。配置审核后可从飞书渠道页启动已有的应用创建流程。
 
 ## 执行边界
 
-本次技能为分析操作步骤，随身份、知识和规则在新建 MA Agent 时加入系统提示词；不是新安装的数据接口或独立工具。底层工具仍由已有员工运行时提供。已创建 MA Agent 的后续配置编辑不自动更新远端版本，需要后续配置同步支持。
+技能包源码位于项目 `skills/ada-*/SKILL.md`，已上传到 MA。服务器使用页面配置的 APIKey 查询 `GET /skills?limit=100&page=...`，绑定前回读技能详情；新建 Agent 时使用 `{type:"custom",skill_id,version}` 引用，不能用本地文本冒充 Skill。原六项分析流程已迁入知识中。技能执行仍使用现有运行时工具，不会凭空增加实时数据源。已创建 MA Agent 的后续配置编辑不自动更新远端版本，需要后续配置同步支持。
+
+当前 MA 创建/更新接口接受请求后未回传独立 metadata 标签字段，因此使用远端描述中的 `[ada]` 标记映射为工作台 `ada` 标签，技能包 frontmatter 同时保存 `metadata.tags: ada`；这是应用分组约定，不是已验证的 MA 原生 tag 查询。页面可以搜索 `ada`，技能列表仍按真实接口分页加载。
+
+2026-09-21 上传并回读验证：
+
+| 技能 | MA ID | 版本 |
+|---|---|---|
+| ada-artist-profile | skill-20260921120354-hz5qx | 1 |
+| ada-brand-fit | skill-20260921120505-zgjrr | 1 |
+| ada-campaign-review | skill-20260921120505-jl7fx | 1 |
 
 模板不含真实艺人事实、平台实时指标、商务报价、档期或行业基准。实际分析需用户提供文件、授权文档或可核验的公开来源。记忆模板通过已有业务记忆上下文注入，不直接创建 MA 原生 Memory 资源。
 

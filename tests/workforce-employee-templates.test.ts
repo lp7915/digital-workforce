@@ -3,11 +3,7 @@ import assert from 'node:assert/strict';
 import { LocalWorkspace } from '../src/workforce/workspace.ts';
 import { Workforce } from '../src/workforce/domain.ts';
 import { createWeb } from '../src/workforce/web.ts';
-import {
-  createAdaEmployee,
-  initializeAda,
-  employeeSkillInstructions,
-} from '../src/workforce/employee-templates.ts';
+import { createAdaEmployee, initializeAda } from '../src/workforce/employee-templates.ts';
 
 test('初始化保存 ADA 全部配置和有效的记忆库路径，不创建渠道或凭证', () => {
   const workspace = new LocalWorkspace(':memory:');
@@ -16,7 +12,7 @@ test('初始化保存 ADA 全部配置和有效的记忆库路径，不创建渠
     const employee = workspace.read().state.employees[0];
     assert.equal(employee.name, 'ADA');
     assert.equal(result.created, true);
-    assert.equal(employee.skills.length, 6);
+    assert.equal(employee.skills.length, 0);
     assert.equal(employee.memories.length, 5);
     assert.ok(employee.memories.every((entry: any) => entry.storeId === employee.memoryStores[0].id));
     assert.deepEqual(employee.credentials, []);
@@ -54,17 +50,10 @@ test('同名普通员工不被覆盖或产生重复', () => {
     workspace.close();
   }
 });
-test('MA 技能指令只加载启用且具有执行说明的技能', () => {
-  assert.equal(
-    employeeSkillInstructions({
-      skills: [
-        { name: '分析', enabled: true, instructions: '先核验来源' },
-        { name: '停用', enabled: false, instructions: '不能加载' },
-        { name: '旧技能', enabled: true, description: '旧说明' },
-      ],
-    }),
-    '技能：分析\n先核验来源',
-  );
+test('分析流程保留在知识中，不生成模拟技能', () => {
+  const employee = createAdaEmployee();
+  assert.match(employee.knowledge, /数据清洗与口径核验/);
+  assert.deepEqual(employee.skills, []);
 });
 test('初始化接口可用且拒绝跨站写入', async () => {
   const workspace = new LocalWorkspace(':memory:');

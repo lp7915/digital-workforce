@@ -9,6 +9,7 @@ import type { WorkspaceChannels } from './channels.ts';
 import type { MaConfiguration } from './ma-config.ts';
 import type { FeishuGroups } from './feishu-groups.ts';
 import { initializeAda } from './employee-templates.ts';
+import { MaSkills } from './ma-skills.ts';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 type Access = { id: string; principal: Principal; active: boolean; expiresAt?: number };
@@ -84,6 +85,21 @@ export async function createWeb(
       if (options.workspace && path.startsWith('/api/workspace')) {
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DomainError('拒绝跨站请求', 403);
         const workspace = options.workspace;
+        if (path === '/api/workspace/ma-skills' && options.maConfig && method === 'GET')
+          return json(res, await new MaSkills(options.maConfig).list(url.searchParams.get('page') || ''));
+        const skillBinding = path.match(/^\/api\/workspace\/employees\/([^/]+)\/skills$/);
+        if (skillBinding && options.maConfig && method === 'POST') {
+          const input = await body(req);
+          if (typeof input.skillId !== 'string') throw new DomainError('请选择 MA Skill');
+          return json(
+            res,
+            await new MaSkills(options.maConfig).bind(
+              workspace,
+              decodeURIComponent(skillBinding[1]),
+              input.skillId,
+            ),
+          );
+        }
         if (path === '/api/workspace/employee-templates/ada/initialize' && method === 'POST') {
           await body(req);
           return json(res, initializeAda(workspace));

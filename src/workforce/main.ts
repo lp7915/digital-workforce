@@ -9,6 +9,7 @@ import { MaExtractor } from './extractor.ts';
 import { LocalWorkspace } from './workspace.ts';
 import { WorkspaceChannels } from './channels.ts';
 import { MaConfiguration } from './ma-config.ts';
+import { migrateLocalSkills } from './ma-skills.ts';
 import { FeishuGroups } from './feishu-groups.ts';
 
 const dataDir = resolve(process.env.WORKFORCE_DATA_DIR || 'data');
@@ -17,6 +18,7 @@ const lock = new GatewayStore(resolve(dataDir, 'web-lock.db'));
 lock.acquireRuntimeLock();
 const w = new Workforce(resolve(dataDir, 'workforce.db'));
 const workspace = new LocalWorkspace(resolve(dataDir, 'workspace.db'));
+migrateLocalSkills(workspace);
 const channels = new WorkspaceChannels(workspace, { dataDir });
 const tokenPath = resolve(dataDir, 'admin-token');
 if (!existsSync(tokenPath)) writeFileSync(tokenPath, randomBytes(32).toString('hex'), { mode: 0o600 });

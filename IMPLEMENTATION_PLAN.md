@@ -4,6 +4,14 @@
 **Tests**: 运行时装配与 Gateway 回归。
 **Status**: Complete
 
+## Stage 6: MA 真实技能与 ADA 技能包
+**Goal**: APIKey 拉取 MA Skill，上传并引用 3 个 ada 标签技能，迁移模拟数据。
+**Success Criteria**: 列表与绑定来自 MA；Agent 使用真实 ID/version；上传后回读标签；旧流程保留为知识。
+**Tests**: 分页鉴权、绑定与版本校验、迁移幂等、真实上传回读与界面检查。
+**Status**: Complete
+
+三个技能包通过格式校验，已上传 MA 并回读 ID/version，绑定到本机 ADA。独立 metadata 标签未在 MA 响应中持久化回显，采用远端描述 [ada] + 技能包 metadata.tags 约定并在页面可搜索。真实页面读取 100 项，搜索 ada 显示 3 项已绑定技能。完整 1806 项测试通过；尚未启动 ADA 的 MA Session 实测执行。
+
 ## Stage 5: ADA 艺人分析初始化
 **Goal**: 增加幂等初始化入口，配套身份、知识规则、分析技能、方法与报告记忆模板。
 **Success Criteria**: 创建后可编辑；重复初始化不覆盖；技能说明纳入新 Agent 配置；不伪造数据或凭证。

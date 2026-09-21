@@ -507,6 +507,7 @@ function modal(title, body) {
   $('#modal').showModal();
 }
 function closeModal() {
+  maSkillGeneration++;
   groupLoadGeneration++;
   const secret = $('#ma-api-key');
   if (secret) secret.value = '';
@@ -719,6 +720,40 @@ let feishuScanned = 0;
 let feishuFailed = 0;
 let groupLoadGeneration = 0;
 async function browseFeishuGroups(more = false) {
+let maSkillEmployee = '',
+  maSkillPage = '';
+let maSkills = [];
+let maSkillGeneration = 0;
+async function browseMaSkills(employeeId, more = false) {
+  const generation = ++maSkillGeneration;
+  if (!more) {
+    maSkillEmployee = employeeId;
+    maSkillPage = '';
+    maSkills = [];
+  }
+  modal('从 MA 添加技能', '<p>正在通过方舟 APIKey 读取 MA 技能…</p>');
+  try {
+    const result = await request('/ma-skills?page=' + encodeURIComponent(maSkillPage));
+    if (generation !== maSkillGeneration || !$('#modal').open) return;
+    maSkillPage = result.nextPage;
+    for (const skill of result.skills) if (!maSkills.some((s) => s.id === skill.id)) maSkills.push(skill);
+    const bound = data.employees.find((e) => e.id === employeeId)?.skills || [];
+    modal(
+      '从 MA 添加技能',
+      `<p class="muted">已加载 ${maSkills.length} 项真实技能 · 同名技能以 ID 区分</p><input id="ma-skill-search" class="search" placeholder="搜索名称、描述或标签（如 ada）" aria-label="搜索 MA 技能" /><div class="grid compact-cards">${maSkills.map((s) => `<article class="entity-card" data-ma-skill-search="${esc((s.name + ' ' + s.description + ' ' + (s.tags || []).join(' ')).toLowerCase())}"><h3>${esc(s.name)}</h3><p class="card-description">${esc(s.description)}</p><p class="muted">${esc(s.id)} · v${esc(s.version)} ${esc((s.tags || []).join(' · '))}</p>${bound.some((b) => b.id === s.id && b.version === s.version) ? '<span class="pill green">已绑定</span>' : button('绑定此技能', 'bind-ma-skill', s.id, true)}</article>`).join('')}</div>${maSkills.length ? '' : '<p>当前 APIKey 下没有可用技能，请先在 MA 创建技能。</p>'}<div class="actions">${button('关闭', 'close')}${result.hasMore ? button('加载更多', 'more-ma-skills') : ''}</div>`,
+    );
+  } catch (error) {
+    if (generation === maSkillGeneration && $('#modal').open)
+      modal('从 MA 添加技能', `<p class="error">${esc(error.message)}</p>${button('关闭', 'close')}`);
+  }
+}
+document.addEventListener('input', (event) => {
+  if (event.target.id !== 'ma-skill-search') return;
+  const query = event.target.value.trim().toLowerCase();
+  document.querySelectorAll('[data-ma-skill-search]').forEach((card) => {
+    card.hidden = !card.dataset.maSkillSearch.includes(query);
+  });
+});
   const generation = ++groupLoadGeneration;
   if (!more) {
     feishuGroupPage = '';
@@ -846,7 +881,7 @@ function employeeDetail(e, section) {
       })
       .join('');
   if (section === 'skills')
-    content = `<div class="section-toolbar"><p class="muted">配置分析步骤与执行说明，新建 MA Agent 时加载已启用的说明。</p>${button('＋ 添加技能', 'add-skill')}</div><div class="grid compact-cards">${e.skills.map((skill) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◇</span>${badge(skill.enabled ? '已启用' : '已停用', skill.enabled ? 'green' : '')}</div><h3>${esc(skill.name)}</h3><p class="card-description">${esc(skill.description)}</p>${skill.instructions ? `<details><summary>执行说明</summary><p>${esc(skill.instructions)}</p></details>` : ''}<div class="actions">${button('编辑', 'edit-skill', skill.id)}${button(skill.enabled ? '停用' : '启用', 'toggle-skill', skill.id)}${button('移除', 'remove-skill', skill.id)}</div></article>`).join('')}</div>${!e.skills.length ? empty('暂无技能', '添加技能，为员工扩展能力。') : ''}`;
+    content = `<div class="section-toolbar"><p class="muted">使用当前方舟 APIKey 从 MA 选择真实 Skill。新建 Agent 时绑定；已有远端 Agent 的变更尚需同步。</p>${button('＋ 从 MA 添加技能', 'add-skill')}</div><div class="grid compact-cards">${e.skills.map((skill) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◇</span>${badge(skill.enabled ? '已启用' : '已停用', skill.enabled ? 'green' : '')}</div><h3>${esc(skill.name)}</h3><p class="card-description">${esc(skill.description)}</p><p class="muted">MA · v${esc(skill.version || '')}<br>${esc(skill.id)}</p><div class="actions">${button(skill.enabled ? '停用' : '启用', 'toggle-skill', skill.id)}${button('移除', 'remove-skill', skill.id)}</div></article>`).join('')}</div>${!e.skills.length ? empty('暂无 MA 技能', '从 MA 技能列表选择并绑定，不使用本地模拟技能。') : ''}`;
   if (section === 'memories') content = memoryList(e, false);
   if (section === 'credentials')
     content = `<div class="section-toolbar"><p class="muted">仅登记凭证名称和引用标识，不接收或保存密钥。</p>${button('＋ 登记凭证', 'add-credential')}</div><div class="grid compact-cards">${e.credentials.map((credential) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">♧</span>${badge('待后端接入')}</div><h3>${esc(credential.name)}</h3><p class="card-description">${esc(credential.reference)}</p><div class="card-footer"><span>凭证引用</span>${button('移除', 'remove-credential', credential.id)}</div></article>`).join('')}</div>${!e.credentials.length ? empty('尚未登记凭证', '登记凭证引用后，由后端完成安全存储与授权。') : ''}`;
@@ -1091,13 +1126,6 @@ function editDialog(kind, item = {}) {
       field('凭证名称', 'name', '', '例如：资料库凭证', true) +
       field('凭证引用标识', 'reference', '', '例如：credential://knowledge-reader', true);
   }
-  if (kind === 'skill') {
-    title = item.id ? '编辑技能' : '添加技能';
-    fields =
-      field('技能名称', 'name', item.name || '', '例如：文案校对', true) +
-      area('技能简介', 'description', item.description || '', 3) +
-      area('执行说明', 'instructions', item.instructions || '', 8);
-  }
   if (kind === 'publish') {
     title = '发布本地版本';
     fields =
@@ -1142,11 +1170,23 @@ document.addEventListener('click', async (event) => {
     }
     return;
   }
-  if (action === 'edit-skill')
-    return editDialog(
-      'skill',
-      owner.skills.find((skill) => skill.id === id),
-    );
+  if (action === 'add-skill') return browseMaSkills(owner.id);
+  if (action === 'more-ma-skills') return browseMaSkills(maSkillEmployee, true);
+  if (action === 'bind-ma-skill') {
+    target.disabled = true;
+    try {
+      acceptServer(
+        await request(`/employees/${encodeURIComponent(maSkillEmployee)}/skills`, 'POST', { skillId: id }),
+      );
+      closeModal();
+      render();
+      toast('已绑定 MA Skill ID 与版本');
+    } catch (error) {
+      toast(error.message);
+      target.disabled = false;
+    }
+    return;
+  }
   if (action === 'reconnect') return connectWorkspace();
   if (action === 'ma-config') return openMaConfig();
   if (action === 'retry-feishu') return openFeishu(id, true, true);
@@ -1498,16 +1538,6 @@ document.addEventListener('submit', async (event) => {
         values,
       );
     else owner.members.push({ id: uid(), ...values });
-  }
-  if (kind === 'skill') {
-    if (!values.name) return toast('请填写技能名称');
-    if (owner.skills.some((s) => s.name === values.name && s.id !== id)) return toast('该技能已存在');
-    if (id)
-      Object.assign(
-        owner.skills.find((skill) => skill.id === id),
-        values,
-      );
-    else owner.skills.push({ id: uid(), ...values, enabled: true });
   }
   if (kind === 'credential') {
     if (!values.name || !values.reference) return toast('请填写名称与引用标识');
