@@ -9,6 +9,7 @@ import { MaExtractor } from './extractor.ts';
 import { LocalWorkspace } from './workspace.ts';
 import { WorkspaceChannels } from './channels.ts';
 import { MaConfiguration } from './ma-config.ts';
+import { FeishuGroups } from './feishu-groups.ts';
 
 const dataDir = resolve(process.env.WORKFORCE_DATA_DIR || 'data');
 mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -51,6 +52,7 @@ const { server, url } = await createWeb(w, {
   extractorMode,
   workspace,
   channels,
+  feishuGroups: new FeishuGroups(workspace, channels),
   maConfig: new MaConfiguration(dataDir),
 });
 channels.resume();

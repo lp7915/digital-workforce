@@ -7,6 +7,7 @@ import { LocalLab } from './lab.ts';
 import { LocalWorkspace } from './workspace.ts';
 import type { WorkspaceChannels } from './channels.ts';
 import type { MaConfiguration } from './ma-config.ts';
+import type { FeishuGroups } from './feishu-groups.ts';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 type Access = { id: string; principal: Principal; active: boolean; expiresAt?: number };
@@ -58,6 +59,7 @@ export async function createWeb(
     workspace?: LocalWorkspace;
     channels?: WorkspaceChannels;
     maConfig?: MaConfiguration;
+    feishuGroups?: FeishuGroups;
   },
 ) {
   const lab = new LocalLab(w);
@@ -81,6 +83,23 @@ export async function createWeb(
       if (options.workspace && path.startsWith('/api/workspace')) {
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DomainError('拒绝跨站请求', 403);
         const workspace = options.workspace;
+        if (path === '/api/workspace/feishu-groups' && options.feishuGroups) {
+          if (method === 'GET')
+            return json(res, await options.feishuGroups.list(url.searchParams.get('pageToken') || ''));
+          if (method === 'POST') {
+            const input = await body(req);
+            if (typeof input.chatId !== 'string') throw new DomainError('请选择飞书群聊');
+            return json(res, await options.feishuGroups.import(input.chatId));
+          }
+        }
+        if (path === '/api/workspace/feishu-groups/employees' && options.feishuGroups && method === 'GET')
+          return json(res, { employees: options.feishuGroups.employees() });
+        if (path === '/api/workspace/feishu-groups/employees' && options.feishuGroups && method === 'POST') {
+          const input = await body(req);
+          if (typeof input.chatId !== 'string' || typeof input.employeeId !== 'string')
+            throw new DomainError('请选择群聊和数字员工');
+          return json(res, await options.feishuGroups.add(input.chatId, input.employeeId));
+        }
         if (path === '/api/workspace/ma-config' && options.maConfig) {
           if (method === 'GET') return json(res, options.maConfig.status());
           if (method === 'PUT') {

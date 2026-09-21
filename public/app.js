@@ -250,7 +250,7 @@ async function request(path, method = 'GET', body) {
     method,
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(path.startsWith('/feishu-groups') ? 120000 : 15000),
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || '本机服务请求失败');
@@ -505,6 +505,7 @@ function modal(title, body) {
   $('#modal').showModal();
 }
 function closeModal() {
+  groupLoadGeneration++;
   const secret = $('#ma-api-key');
   if (secret) secret.value = '';
   $('#modal').close();
@@ -710,10 +711,50 @@ function render() {
   }
   applyFilters();
 }
+let feishuGroupPage = '';
+let feishuGroupsFound = [];
+let feishuScanned = 0;
+let feishuFailed = 0;
+let groupLoadGeneration = 0;
+async function browseFeishuGroups(more = false) {
+  const generation = ++groupLoadGeneration;
+  if (!more) {
+    feishuGroupPage = '';
+    feishuGroupsFound = [];
+    feishuScanned = 0;
+    feishuFailed = 0;
+    modal('从飞书选择群聊', '<p>正在读取当前用户管理的群聊…</p>');
+  }
+  const content = $('#modal-content');
+  content.querySelectorAll('button').forEach((button) => (button.disabled = true));
+  try {
+    const page = await request('/feishu-groups?pageToken=' + encodeURIComponent(feishuGroupPage));
+    if (generation !== groupLoadGeneration || !$('#modal').open) return;
+    feishuGroupPage = page.pageToken;
+    feishuScanned += page.scanned;
+    feishuFailed += page.failed;
+    for (const group of page.groups)
+      if (!feishuGroupsFound.some((g) => g.chatId === group.chatId)) feishuGroupsFound.push(group);
+    modal(
+      '从飞书选择群聊',
+      `<p class="muted">${esc(page.userName || '当前用户')} · 已检查 ${feishuScanned} 个群，找到 ${feishuGroupsFound.length} 个管理群</p>${feishuFailed ? `<p class="error">${feishuFailed} 个群读取失败，可关闭后重新拉取。</p>` : ''}<div class="grid compact-cards">${feishuGroupsFound.map((g) => `<article class="entity-card"><h3>${esc(g.name)}</h3><p class="muted">${g.role === 'owner' ? '群主' : '管理员'}</p>${data.groups.some((saved) => saved.chatId === g.chatId) ? '<span class="pill green">已添加到工作台</span>' : button('添加到工作台', 'import-feishu-group', g.chatId, true)}</article>`).join('')}</div>${!feishuGroupsFound.length ? '<p>本页暂无你管理的群聊。</p>' : ''}<div class="actions form-actions">${button('关闭', 'close')}${page.hasMore ? button('继续查找更多群聊', 'more-feishu-groups', '', true) : '<span class="muted">已检查全部群聊</span>'}</div>`,
+    );
+  } catch (error) {
+    if (generation === groupLoadGeneration && $('#modal').open)
+      modal(
+        '从飞书选择群聊',
+        `<p class="error">${esc(error.message)}</p>${button('重新拉取', 'browse-feishu-groups')}${button('关闭', 'close')}`,
+      );
+  }
+}
 function groupsOverview() {
   return (
-    head('群聊', '集中管理群聊及服务员工，按项目组织协作。', button('＋ 登记群聊', 'new-group', '', true)) +
-    `<p class="demo-note">当前显示本地登记及项目关联的群聊。飞书尚未连接，无法同步实际触达范围；添加员工仅保存服务配置，不会执行真实入群。</p><div class="toolbar"><span class="muted">共 ${data.groups.length} 个群聊</span><input id="search" class="search" aria-label="搜索群聊" placeholder="搜索群聊、项目或员工…" value="${esc(search)}" /></div><div class="grid compact-cards">${data.groups.map((group) => `<article class="entity-card" data-search="${esc([group.name, group.chatId, projectName(group.projectId), ...group.employeeIds.map(employeeName)].join(' '))}"><div class="card-top"><span class="entity-icon">☏</span>${badge('入群状态未同步')}</div><h3>${esc(group.name)}</h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">${group.projectId ? `<a href="#projects/${esc(group.projectId)}/groups">${esc(projectName(group.projectId))}</a>` : '未关联项目'}</p><p>服务员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('＋ 添加数字员工', 'assign-group', group.id, true)}${button('编辑群聊', 'manage-group', group.id)}</div></article>`).join('')}</div><div id="filter-empty" hidden>${empty('没有匹配群聊', '登记群聊或调整搜索关键词。')}</div>`
+    head(
+      '群聊',
+      '管理飞书群聊及服务员工，按项目组织协作。',
+      button('从飞书选择', 'browse-feishu-groups', '', true),
+    ) +
+    `<p class="demo-note">从飞书拉取你担任群主或管理员的群聊，添加数字员工后即可在群中 @ 机器人使用。</p><div class="toolbar"><span class="muted">共 ${data.groups.length} 个群聊</span><input id="search" class="search" aria-label="搜索群聊" placeholder="搜索群聊、项目或员工…" value="${esc(search)}" /></div><div class="grid compact-cards">${data.groups.map((group) => `<article class="entity-card" data-search="${esc([group.name, group.chatId, projectName(group.projectId), ...group.employeeIds.map(employeeName)].join(' '))}"><div class="card-top"><span class="entity-icon">☏</span>${badge(group.source === 'feishu' ? '飞书群聊' : '本地登记')}</div><h3>${esc(group.name)}</h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">${group.projectId ? `<a href="#projects/${esc(group.projectId)}/groups">${esc(projectName(group.projectId))}</a>` : '未关联项目'}</p><p>服务员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('＋ 添加数字员工', 'assign-group', group.id, true)}${button('编辑群聊', 'manage-group', group.id)}</div></article>`).join('')}</div><div id="filter-empty" hidden>${empty('没有匹配群聊', '登记群聊或调整搜索关键词。')}</div>`
   );
 }
 function overview(module) {
@@ -1014,13 +1055,11 @@ function editDialog(kind, item = {}) {
   if (kind === 'group-employees') {
     title = '添加数字员工 · ' + item.name;
     fields =
-      '<p class="muted">勾选为此群服务的数字员工，取消勾选可解除服务配置。真实入群将在飞书连接后执行。</p>' +
-      data.employees
-        .map(
-          (employee) =>
-            `<label class="checkbox-label"><input type="checkbox" name="employeeIds" value="${esc(employee.id)}" ${item.employeeIds.includes(employee.id) ? 'checked' : ''} ${!employee.enabled && !item.employeeIds.includes(employee.id) ? 'disabled' : ''} />${esc(employee.name)}${employee.enabled ? '' : '（已停用）'}</label>`,
-        )
-        .join('');
+      '<p class="muted">以当前登录用户身份，将所选员工的机器人添加到此飞书群。员工需已完成飞书连接；提交时会重新校验群管理权限。</p>' +
+      select('数字员工', 'employeeId', '', [
+        ['', '请选择数字员工'],
+        ...(item.availableEmployees || []).map((e) => [e.id, e.name]),
+      ]);
   }
   if (kind === 'member') {
     title = item.id ? '修改成员权限' : '添加成员';
@@ -1052,7 +1091,7 @@ function editDialog(kind, item = {}) {
   }
   modal(
     title,
-    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'publish' ? '确认发布' : kind === 'memory-info' ? '应用' : '保存'}</button></div><p class="demo-note">${kind === 'memory-info' ? '应用后，点击内容区顶部的保存，与正文和路径一起保存。' : '保存到本机工作台'}</p></form>`,
+    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'group-employees' ? '确认添加到飞书群' : kind === 'publish' ? '确认发布' : kind === 'memory-info' ? '应用' : '保存'}</button></div><p class="demo-note">${kind === 'group-employees' ? '入群成功后保存服务关联，机器人将能接收该群中的消息。' : kind === 'memory-info' ? '应用后，点击内容区顶部的保存，与正文和路径一起保存。' : '保存到本机工作台'}</p></form>`,
   );
 }
 function confirmAction(title, text, action, id) {
@@ -1081,8 +1120,40 @@ document.addEventListener('click', async (event) => {
   if (action === 'connect-feishu') return openFeishu(owner.id, true);
   if (action === 'view-feishu') return openFeishu(owner.id);
   if (action === 'new-task') return editDialog('task');
+  if (action === 'browse-feishu-groups') return browseFeishuGroups();
+  if (action === 'more-feishu-groups') return browseFeishuGroups(true);
+  if (action === 'import-feishu-group') {
+    target.disabled = true;
+    try {
+      acceptServer(await request('/feishu-groups', 'POST', { chatId: id }));
+      closeModal();
+      render();
+      toast('群聊已添加，可继续添加数字员工');
+    } catch (error) {
+      toast(error.message);
+      target.disabled = false;
+    }
+    return;
+  }
   if (action === 'new-group') return editDialog('group');
-  if (action === 'manage-group' || action === 'assign-group')
+  if (action === 'assign-group') {
+    target.disabled = true;
+    try {
+      const result = await request('/feishu-groups/employees');
+      editDialog('group-employees', {
+        ...data.groups.find((group) => group.id === id),
+        availableEmployees: result.employees,
+      });
+      if (!result.employees.length)
+        $('#dialog-feedback').textContent = '暂无已连接飞书的员工，请先在数字员工详情中完成飞书连接。';
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      target.disabled = false;
+    }
+    return;
+  }
+  if (action === 'manage-group')
     return editDialog(
       action === 'manage-group' ? 'group' : 'group-employees',
       data.groups.find((group) => group.id === id),
@@ -1327,8 +1398,26 @@ document.addEventListener('submit', async (event) => {
     syncProjectGroups(data);
   }
   if (kind === 'group-employees') {
-    data.groups.find((group) => group.id === id).employeeIds = new FormData(form).getAll('employeeIds');
-    syncProjectGroups(data);
+    if (!values.employeeId) return toast('请选择数字员工');
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      const group = data.groups.find((group) => group.id === id);
+      acceptServer(
+        await request('/feishu-groups/employees', 'POST', {
+          chatId: group.chatId,
+          employeeId: values.employeeId,
+        }),
+      );
+      closeModal();
+      render();
+      toast('数字员工已加入飞书群，可在群中 @ 使用');
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      submit.disabled = false;
+    }
+    return;
   }
   if (kind === 'member') {
     if (!values.name || !values.account) return toast('请填写成员信息');
