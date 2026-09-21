@@ -7,7 +7,7 @@ const source = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8'
 function fixture(storage = new Map<string, string>()) {
   return runInNewContext(
     source.slice(0, source.indexOf('let data =')) +
-      '\n({ seed, snapshot, repository, migrateMemories, memoryError, activeTasks });',
+      '\n({ seed, snapshot, repository, migrateMemories, memoryError, activeTasks, memoryTree });',
     {
       structuredClone,
       localStorage: {
@@ -77,6 +77,18 @@ test('浏览器刷新后保留员工配置和项目成员权限', () => {
 test('损坏的本地演示数据不会导致首次页面无法初始化', () => {
   const { repository } = fixture(new Map([['workforce.frontend.v1', 'not-json']]));
   assert.equal(repository.load().employees.length, 2);
+});
+
+test('路径树将同名文件分配到各自目录并支持根目录条目', () => {
+  const { memoryTree } = fixture();
+  const tree = memoryTree([
+    { id: 'a', path: 'notes/brief.md' },
+    { id: 'b', path: 'archive/2026/brief.md' },
+    { id: 'c', path: 'README.md' },
+  ]);
+  assert.equal(tree.folders.get('notes').files[0].id, 'a');
+  assert.equal(tree.folders.get('archive').folders.get('2026').files[0].id, 'b');
+  assert.equal(tree.files[0].filename, 'README.md');
 });
 
 test('运行中的任务只包含执行中和等待中的任务', () => {
