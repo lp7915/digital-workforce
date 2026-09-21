@@ -834,7 +834,7 @@ export class Gateway {
   }
 
   private process(message: IncomingMessage, key: ConversationKey, handoff?: SessionHandoff, hasReaction = false, continuation?: string, inboxId?: string, prepared?: InboxPreparation): Promise<void> {
-    if (!this.options.beforeBusinessTurn && !this.options.afterBusinessTurn) return this.processCore(message, key, handoff, hasReaction, continuation, inboxId, prepared);
+    if (!this.options.beforeBusinessTurn && !this.options.afterBusinessTurn && !this.options.handleBusinessCommand) return this.processCore(message, key, handoff, hasReaction, continuation, inboxId, prepared);
     return this.processWithHooks(message, key, handoff, hasReaction, continuation, inboxId, prepared);
   }
 
@@ -842,6 +842,8 @@ export class Gateway {
     let failed = true;
     try {
       await this.options.beforeBusinessTurn?.(message);
+      const commandReply = await this.options.handleBusinessCommand?.(message);
+      if (commandReply !== undefined) { await this.replyText(message, commandReply); failed = false; return; }
       await this.processCore(message, key, handoff, hasReaction, continuation, inboxId, prepared);
       failed = false;
     } finally {
@@ -1241,6 +1243,7 @@ export class Gateway {
         }
         this.store.assertSessionAgent(key, this.options.agentId);
       } : undefined;
+      await this.options.validateBusinessSession?.(message, sessionId);
       assertUserAuthorization?.();
       if (inboxId) dispatchId = this.store.dispatchMessage(inboxId, sessionId, runInputFingerprint(input, pdfFiles)).dispatchId;
       else this.store.touchEvent(message, true);
@@ -1784,6 +1787,8 @@ export function shouldHandleMessage(message: IncomingMessage): boolean {
 
 export type GatewayOptions = {
   // 可选业务层钩子；业务存储和权限不暴露为模型工具。
+  handleBusinessCommand?: (message: IncomingMessage) => Promise<string | undefined>;
+  validateBusinessSession?: (message: IncomingMessage, sessionId: string) => Promise<void>;
   beforeBusinessTurn?: (message: IncomingMessage) => Promise<void>;
   prepareBusinessInput?: (message: IncomingMessage, sessionId: string, input: string) => Promise<string>;
   observeBusinessResult?: (message: IncomingMessage, sessionId: string, result: RunResult) => Promise<void>;

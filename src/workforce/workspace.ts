@@ -87,9 +87,27 @@ function validateConfiguration(employee: RecordData) {
       throw new DomainError('仅支持凭证引用，不接收明文密钥');
   }
 }
-function validateState(value: unknown, previous: RecordData) {
+function validateState(value: unknown, previous: RecordData, memoryWrite = false) {
   object(value, '工作台');
   const input = normalizeGroups(structuredClone(value));
+  for (const kind of ['employees', 'projects']) {
+    for (const owner of records(input[kind], kind)) {
+      const old = previous[kind]?.find((o: RecordData) => o.id === owner.id);
+      if (!memoryWrite) {
+        if (old?.memoryMode === 'ma' || old?.memoryMigration) {
+          owner.memoryStores = structuredClone(old.memoryStores);
+          owner.memories = structuredClone(old.memories);
+          owner.memoryMode = old.memoryMode;
+          owner.memoryMigration = old.memoryMigration;
+        } else {
+          delete owner.memoryMode;
+          delete owner.memoryMigration;
+          if (owner.memoryStores?.some((s: RecordData) => s.maStoreId))
+            throw new DomainError('MA 记忆库必须通过记忆接口创建');
+        }
+      }
+    }
+  }
   const employees = records(input.employees, '数字员工');
   const employeeIds = new Set(employees.map((employee) => employee.id));
   for (const employee of employees) {
@@ -194,7 +212,7 @@ export class LocalWorkspace {
       CREATE TABLE IF NOT EXISTS workspace_tasks (id TEXT PRIMARY KEY, request_id TEXT UNIQUE NOT NULL, payload TEXT NOT NULL);`);
     // 本地快照任务没有外部副作用，可在进程恢复后重新执行。
     for (const task of this.tasks())
-      if (task.status === 'running') {
+      if (task.status === 'running' && task.type === 'run') {
         task.status = 'queued';
         task.progress = '服务重启，等待恢复';
         this.putTask(task);
@@ -214,13 +232,13 @@ export class LocalWorkspace {
       },
     };
   }
-  save(input: unknown, revision: number) {
+  save(input: unknown, revision: number, memoryWrite = false) {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const current = this.read();
       if (!Number.isInteger(revision) || current.revision !== revision)
         throw new DomainError('数据已被其他页面修改，请刷新后重试', 409);
-      const state = validateState(input, current.state);
+      const state = validateState(input, current.state, memoryWrite);
       this.db
         .prepare(
           'INSERT INTO workspace VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload',
@@ -310,7 +328,7 @@ export class LocalWorkspace {
   tick() {
     const task = this.tasks()
       .reverse()
-      .find((item) => ['queued', 'running'].includes(item.status));
+      .find((item) => item.type === 'run' && ['queued', 'running'].includes(item.status));
     if (!task) return;
     if (task.status === 'queued') {
       task.status = 'running';

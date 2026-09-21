@@ -257,6 +257,7 @@ async function request(path, method = 'GET', body) {
   return result;
 }
 function acceptServer(result) {
+  loadedMemoryKey = '';
   serverRevision = result.revision;
   data = migrateMemories(result.state);
   confirmedData = copy(data);
@@ -470,6 +471,8 @@ async function commit(message) {
   $('#app').inert = true;
   $('#modal').inert = true;
   const pending = copy(migrateMemories(data));
+  for (const owner of [...pending.employees, ...pending.projects])
+    if (owner.memoryMode === 'ma') owner.memories = [];
   try {
     const result = await request('', 'PUT', { revision: serverRevision, state: pending });
     acceptServer(result);
@@ -865,7 +868,7 @@ function overview(module) {
     items
       .map(
         (item) =>
-          `<article class="entity-card" data-search="${esc(item.name + ' ' + item.description)}"><div class="card-top"><span class="entity-icon">${employees ? '◈' : '▦'}</span>${employees ? badge(item.activeVersion ? '已发布' : '草稿', item.activeVersion ? 'green' : '') : badge(`${item.groups.length} 个群聊`)}</div><h3><a href="#${module}/${item.id}">${esc(item.name)}</a></h3><p class="card-description">${esc(item.description || '暂无描述')}</p><div class="card-footer"><span>${employees ? `${item.skills.filter((s) => s.enabled).length} 项技能 · ${item.memories.length} 条记忆` : `${item.memories.length} 条记忆 · ${item.members.length} 位成员`}</span><a href="#${module}/${item.id}" aria-label="查看${esc(item.name)}">查看详情 →</a></div></article>`,
+          `<article class="entity-card" data-search="${esc(item.name + ' ' + item.description)}"><div class="card-top"><span class="entity-icon">${employees ? '◈' : '▦'}</span>${employees ? badge(item.activeVersion ? '已发布' : '草稿', item.activeVersion ? 'green' : '') : badge(`${item.groups.length} 个群聊`)}</div><h3><a href="#${module}/${item.id}">${esc(item.name)}</a></h3><p class="card-description">${esc(item.description || '暂无描述')}</p><div class="card-footer"><span>${employees ? `${item.skills.filter((s) => s.enabled).length} 项技能 · ${item.memoryStores.length} 个记忆库` : `${item.memoryStores.length} 个记忆库 · ${item.members.length} 位成员`}</span><a href="#${module}/${item.id}" aria-label="查看${esc(item.name)}">查看详情 →</a></div></article>`,
       )
       .join('') +
     `</div><div id="filter-empty" hidden>${empty('没有匹配结果', '换个关键词试试。')}</div>`
@@ -900,7 +903,7 @@ function employeeDetail(e, section) {
   if (section === 'environment')
     content = panel(
       '运行环境',
-      '保存员工环境配置；外部运行环境尚未连接。',
+      '模型通过「MA 配置」同步，超时在 Channel 重启后生效；名称与区域仅作登记。',
       `<div class="form-grid">${field('环境名称', 'name', e.environment.name)}${field('模型', 'model', e.environment.model)}${select(
         '区域',
         'region',
@@ -933,7 +936,7 @@ function employeeDetail(e, section) {
       })
       .join('');
   if (section === 'skills')
-    content = `<div class="section-toolbar"><p class="muted">使用当前方舟 APIKey 从 MA 选择真实 Skill。新建 Agent 时绑定；已有远端 Agent 的变更尚需同步。</p>${button('＋ 从 MA 添加技能', 'add-skill')}</div><div class="grid compact-cards">${e.skills.map((skill) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◇</span>${badge(skill.enabled ? '已启用' : '已停用', skill.enabled ? 'green' : '')}</div><h3>${esc(skill.name)}</h3><p class="card-description">${esc(skill.description)}</p><p class="muted">MA · v${esc(skill.version || '')}<br>${esc(skill.id)}</p><div class="actions">${button(skill.enabled ? '停用' : '启用', 'toggle-skill', skill.id)}${button('移除', 'remove-skill', skill.id)}</div></article>`).join('')}</div>${!e.skills.length ? empty('暂无 MA 技能', '从 MA 技能列表选择并绑定，不使用本地模拟技能。') : ''}`;
+    content = `<div class="section-toolbar"><p class="muted">使用当前方舟 APIKey 从 MA 选择真实 Skill。修改后通过页面顶部「MA 配置」同步到远端 Agent。</p>${button('＋ 从 MA 添加技能', 'add-skill')}</div><div class="grid compact-cards">${e.skills.map((skill) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◇</span>${badge(skill.enabled ? '已启用' : '已停用', skill.enabled ? 'green' : '')}</div><h3>${esc(skill.name)}</h3><p class="card-description">${esc(skill.description)}</p><p class="muted">MA · v${esc(skill.version || '')}<br>${esc(skill.id)}</p><div class="actions">${button(skill.enabled ? '停用' : '启用', 'toggle-skill', skill.id)}${button('移除', 'remove-skill', skill.id)}</div></article>`).join('')}</div>${!e.skills.length ? empty('暂无 MA 技能', '从 MA 技能列表选择并绑定，不使用本地模拟技能。') : ''}`;
   if (section === 'memories') content = memoryList(e, false);
   if (section === 'credentials')
     content = `<div class="section-toolbar"><p class="muted">仅登记凭证名称和引用标识，不接收或保存密钥。</p>${button('＋ 登记凭证', 'add-credential')}</div><div class="grid compact-cards">${e.credentials.map((credential) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">♧</span>${badge('待后端接入')}</div><h3>${esc(credential.name)}</h3><p class="card-description">${esc(credential.reference)}</p><div class="card-footer"><span>凭证引用</span>${button('移除', 'remove-credential', credential.id)}</div></article>`).join('')}</div>${!e.credentials.length ? empty('尚未登记凭证', '登记凭证引用后，由后端完成安全存储与授权。') : ''}`;
@@ -953,9 +956,9 @@ function employeeDetail(e, section) {
     head(
       e.name,
       e.description || '完善员工配置',
-      badge(e.enabled ? '启用' : '停用', e.enabled ? 'green' : ''),
+      `<div class="actions">${badge(e.enabled ? '启用' : '停用', e.enabled ? 'green' : '')}${button('MA 配置', 'view-ma-sync', e.id)}</div>`,
     ) +
-    `<div class="employee-summary"><span>版本<b>${e.activeVersion ? 'v' + e.versions.find((v) => v.id === e.activeVersion)?.number : '未发布'}</b></span><span>技能<b>${e.skills.filter((s) => s.enabled).length}</b></span><span>记忆<b>${e.memories.length}</b></span></div>` +
+    `<div class="employee-summary"><span>版本<b>${e.activeVersion ? 'v' + e.versions.find((v) => v.id === e.activeVersion)?.number : '未发布'}</b></span><span>技能<b>${e.skills.filter((s) => s.enabled).length}</b></span><span>记忆库<b>${e.memoryStores.length}</b></span></div>` +
     tabs('employees', e.id, employeeTabs, section) +
     (editable
       ? `<form id="employee-form" data-section="${section}" class="config-form">${content}${saveBar()}</form>`
@@ -985,9 +988,60 @@ function memoryTreeMarkup(node) {
       .join('')
   );
 }
+let loadedMemoryKey = '',
+  loadingMemoryKey = '',
+  memoryLoadError = '';
+function memoryApiBase() {
+  const r = route();
+  return `/${r.module}/${encodeURIComponent(r.id)}/memory`;
+}
+async function refreshRemoteMemory() {
+  const { owner } = context();
+  if (!owner || owner.memoryMode !== 'ma') return;
+  const base = memoryApiBase(),
+    store = selectedMemoryStore,
+    key = base + '/' + store;
+  loadingMemoryKey = key;
+  memoryLoadError = '';
+  try {
+    const result = await request(base + (store ? `?storeId=${encodeURIComponent(store)}` : ''));
+    if (memoryApiBase() !== base || selectedMemoryStore !== store) return;
+    owner.memoryStores = result.stores;
+    owner.memories = result.entries;
+    loadedMemoryKey = key;
+  } catch (error) {
+    if (memoryApiBase() === base) {
+      memoryLoadError = error.message;
+      loadedMemoryKey = key;
+    }
+  } finally {
+    if (loadingMemoryKey === key) loadingMemoryKey = '';
+    if (memoryApiBase() === base) render();
+  }
+}
+async function readRemoteMemory(entry) {
+  if (entry.loading) return;
+  entry.loading = true;
+  const base = memoryApiBase();
+  try {
+    const result = await request(
+      `${base}/entries/${encodeURIComponent(entry.id)}?storeId=${encodeURIComponent(entry.storeId)}`,
+    );
+    Object.assign(entry, result);
+  } catch (error) {
+    entry.loadError = error.message;
+  } finally {
+    entry.loading = false;
+    if (memoryApiBase() === base) render();
+  }
+}
 function memoryDocument(entry) {
   if (!entry) return empty('暂无条目', '添加一个路径和文本内容，开始维护记忆。');
-  return `<form id="memory-entry-form" data-kind="memory" data-id="${esc(entry.id)}"><div class="memory-document-head"><div class="memory-title-actions"><strong id="memory-document-path" class="memory-path">/${esc(entry.path)}</strong>${button('基础信息', 'memory-info', entry.id)}</div><div class="actions">${button('删除', 'delete-memory', entry.id)}${button('取消', 'cancel-memory')}<button class="primary" type="submit">保存</button></div></div>${['storeId', 'path', 'title', 'source'].map((name) => `<input type="hidden" name="${name}" value="${esc(entry[name])}" />`).join('')}<div class="memory-inline-editor"><div id="memory-line-numbers" aria-hidden="true">${entry.content
+  if (entry.content === undefined) {
+    if (!entry.loadError) void readRemoteMemory(entry);
+    return `<p class="muted">${esc(entry.loadError || '正在从 MA 读取正文…')}</p>`;
+  }
+  return `<form id="memory-entry-form" data-kind="memory" data-id="${esc(entry.id)}"><div class="memory-document-head"><div class="memory-title-actions"><strong id="memory-document-path" class="memory-path">/${esc(entry.path)}</strong>${button('基础信息', 'memory-info', entry.id)}</div><div class="actions">${button('删除', 'delete-memory', entry.id)}${button('取消', 'cancel-memory')}<button class="primary" type="submit">保存</button></div></div>${['storeId', 'path', 'title', 'source', 'sha'].map((name) => `<input type="hidden" name="${name}" value="${esc(entry[name])}" />`).join('')}<div class="memory-inline-editor"><div id="memory-line-numbers" aria-hidden="true">${entry.content
     .split('\n')
     .map((_, i) => i + 1)
     .join(
@@ -996,25 +1050,37 @@ function memoryDocument(entry) {
 }
 function memoryList(owner, project) {
   migrateMemories(data);
+  if (owner.memoryMode !== 'ma')
+    return `<div class="panel"><h3>将记忆存储到 MA</h3><p>已有 ${owner.memoryStores.length} 个记忆库、${owner.memories.length} 条记忆待迁移。迁移完成后，增删改查直接使用 MA Memory Store。</p>${button(owner.memories.length ? '迁移并启用 MA 记忆' : '启用 MA 记忆库', 'migrate-ma-memory', '', true)}</div>`;
+  const key = memoryApiBase() + '/' + selectedMemoryStore;
+  if (loadedMemoryKey !== key) {
+    if (loadingMemoryKey !== key) void refreshRemoteMemory();
+    return '<p class="muted">正在从 MA 读取记忆库…</p>';
+  }
+  if (memoryLoadError)
+    return `<p class="error">${esc(memoryLoadError)}</p>${button('重新读取', 'refresh-memory')}`;
   const store = owner.memoryStores.find((item) => item.id === selectedMemoryStore);
   if (!store)
-    return `<div class="section-toolbar"><p class="muted">${project ? '项目' : '员工'}记忆按记忆库组织，每个条目包含路径和文本内容。</p>${button('＋ 创建记忆库', 'add-store', '', true)}</div><div class="grid compact-cards">${owner.memoryStores.map((item) => `<article class="entity-card"><span class="entity-icon">▤</span><h3>${esc(item.name)}</h3><p class="card-description">${esc(item.description || '通过路径组织长期记忆')}</p><p class="muted">${owner.memories.filter((entry) => entry.storeId === item.id).length} 个条目</p><div class="actions">${button('查看条目', 'open-store', item.id, true)}${button('编辑', 'edit-store', item.id)}</div></article>`).join('')}</div>`;
+    return `<div class="section-toolbar"><p class="muted">${project ? '项目' : '员工'}记忆按记忆库组织，每个条目包含路径和文本内容。</p><div class="actions">${button('刷新', 'refresh-memory')}${button('＋ 创建记忆库', 'add-store', '', true)}</div></div><div class="grid compact-cards">${owner.memoryStores.map((item) => `<article class="entity-card"><span class="entity-icon">▤</span><h3>${esc(item.name)}</h3><p class="card-description">${esc(item.description || '通过路径组织长期记忆')}</p><p class="muted">${item.memoryCount ?? 0} 个条目 · MA</p><div class="actions">${button('查看条目', 'open-store', item.id, true)}${button('编辑', 'edit-store', item.id)}${button('删除库', 'delete-ma-store', item.id)}</div></article>`).join('')}</div>`;
   const entries = owner.memories.filter((entry) => entry.storeId === store.id);
   const entry = entries.find((item) => item.id === selectedMemoryEntry) || entries[0];
   selectedMemoryEntry = entry?.id || '';
-  return `<div class="section-toolbar"><div>${button('← 记忆库', 'back-stores')} <strong>${esc(store.name)}</strong></div>${button('＋ 添加条目', 'add-memory', '', true)}</div><div class="memory-workspace"><nav class="memory-tree" aria-label="记忆路径树"><div class="memory-tree-head"><span>路径树</span><span>${entries.length}</span></div>${memoryTreeMarkup(memoryTree(entries))}</nav><section class="memory-document">${memoryDocument(entry)}</section></div>`;
+  return `<div class="section-toolbar"><div>${button('← 记忆库', 'back-stores')} <strong>${esc(store.name)}</strong></div><div class="actions">${button('刷新', 'refresh-memory')}${button('＋ 添加条目', 'add-memory', '', true)}</div></div><div class="memory-workspace"><nav class="memory-tree" aria-label="记忆路径树"><div class="memory-tree-head"><span>路径树</span><span>${entries.length}</span></div>${memoryTreeMarkup(memoryTree(entries))}</nav><section class="memory-document">${memoryDocument(entry)}</section></div>`;
 }
 function projectDetail(p, section) {
   let content = '';
-  if (section === 'memories') content = memoryList(p, true);
+  if (section === 'memories')
+    content =
+      `<div class="actions">${button('整理近期 Session', 'organize-memory', p.id)}</div>` +
+      memoryList(p, true);
   if (section === 'groups')
     content = `<div class="section-toolbar"><p class="muted">维护项目关联群聊，并指定服务员工。</p>${button('＋ 关联群聊', 'add-group', '', true)}</div><div class="grid compact-cards">${p.groups.map((group) => `<article class="entity-card"><span class="entity-icon">▦</span><h3>${esc(group.name)}</h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">数字员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('＋ 添加数字员工', 'assign-group', group.id)}${button('编辑', 'edit-group', group.id)}${button('解除关联', 'remove-group', group.id)}</div></article>`).join('')}</div>${!p.groups.length ? empty('尚未关联群聊', '将群聊关联到项目，组织项目协作。') : ''}`;
   if (section === 'members')
-    content = `<div class="section-toolbar"><p class="muted">管理谁可以查看、改写记忆，以及维护成员。</p>${button('＋ 添加成员', 'add-member', '', true)}</div><div class="permission-legend"><span><b>查看</b> 只读项目记忆</span><span><b>改写</b> 可新增、编辑和删除记忆</span><span><b>管理</b> 改写记忆及管理成员</span></div><p class="demo-note">当前为本机管理员模式；成员权限已保存，多用户身份鉴权尚未接入。</p><div class="grid compact-cards">${p.members.map((member) => `<article class="entity-card"><div class="card-top"><span class="member-avatar">${esc(member.name.slice(0, 1))}</span>${badge({ read: '查看', write: '改写', manage: '管理' }[member.permission])}</div><h3>${esc(member.name)}</h3><p class="card-description">${esc(member.account)}</p><div class="actions">${button('修改权限', 'edit-member', member.id)}${button('移除', 'remove-member', member.id)}</div></article>`).join('')}</div>`;
+    content = `<div class="section-toolbar"><p class="muted">管理谁可以查看、改写记忆，以及维护成员。</p>${button('＋ 添加成员', 'add-member', '', true)}</div><div class="permission-legend"><span><b>查看</b> 只读项目记忆</span><span><b>改写</b> 可新增、编辑和删除记忆</span><span><b>管理</b> 改写记忆及管理成员</span></div><p class="demo-note">后台使用本机管理员身份；群里触发记忆整理时，将按消息发送者的飞书用户 ID 校验改写权限。</p><div class="grid compact-cards">${p.members.map((member) => `<article class="entity-card"><div class="card-top"><span class="member-avatar">${esc(member.name.slice(0, 1))}</span>${badge({ read: '查看', write: '改写', manage: '管理' }[member.permission])}</div><h3>${esc(member.name)}</h3><p class="card-description">${esc(member.account)}</p><div class="actions">${button('修改权限', 'edit-member', member.id)}${button('移除', 'remove-member', member.id)}</div></article>`).join('')}</div>`;
   return (
     '<a class="back" href="#projects">← 项目</a>' +
     head(p.name, p.description, button('编辑项目', 'edit-project')) +
-    `<div class="employee-summary"><span>项目记忆<b>${p.memories.length}</b></span><span>群聊<b>${p.groups.length}</b></span><span>成员<b>${p.members.length}</b></span></div>` +
+    `<div class="employee-summary"><span>项目记忆库<b>${p.memoryStores.length}</b></span><span>群聊<b>${p.groups.length}</b></span><span>成员<b>${p.members.length}</b></span></div>` +
     tabs('projects', p.id, projectTabs, section) +
     content
   );
@@ -1041,7 +1107,7 @@ function runningTasks() {
   return (
     head(
       '任务',
-      '本地执行上下文快照，验证员工配置与项目记忆的组装。',
+      '查看记忆整理任务与本地验收任务的进度和结果。',
       button('＋ 发起本地任务', 'new-task', '', true),
     ) +
     `<nav class="detail-tabs task-tabs" aria-label="任务分类"><a href="#tasks" class="${history ? '' : 'active'}" ${history ? '' : 'aria-current="page"'}>运行中 <span class="task-tab-count">${active.length}</span></a><a href="#tasks/history" class="${history ? 'active' : ''}" ${history ? 'aria-current="page"' : ''}>最近结束 <span class="task-tab-count">${ended.length}</span></a></nav><p class="muted">${history ? '显示最近结束的 20 项任务' : `${active.filter((r) => r.status === 'running').length} 项执行中 · ${active.filter((r) => r.status === 'queued').length} 项等待中`} · 每 2 秒更新</p><div class="observation-filters"><input id="search" class="search" aria-label="搜索任务" placeholder="搜索任务、员工或项目…" value="${esc(search)}" />${select(
@@ -1132,7 +1198,9 @@ function editDialog(kind, item = {}) {
         '所属记忆库',
         'storeId',
         item.storeId,
-        owner.memoryStores.map((store) => [store.id, store.name]),
+        owner.memoryStores
+          .filter((store) => store.id === item.storeId)
+          .map((store) => [store.id, store.name]),
       ) +
       field('标题（可选）', 'title', item.title) +
       field('来源说明', 'source', item.source);
@@ -1164,7 +1232,7 @@ function editDialog(kind, item = {}) {
     title = item.id ? '修改成员权限' : '添加成员';
     fields =
       field('成员名称', 'name', item.name, '填写名称', true) +
-      field('成员标识', 'account', item.account, '邮箱或用户 ID', true) +
+      field('成员标识', 'account', item.account, '飞书用户 open_id（与数字员工收到的身份一致）', true) +
       select('项目权限', 'permission', item.permission || 'read', [
         ['read', '查看 · 只读记忆'],
         ['write', '改写 · 新增、编辑、删除记忆'],
@@ -1186,7 +1254,7 @@ function editDialog(kind, item = {}) {
   }
   modal(
     title,
-    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'group-employees' ? '确认添加到飞书群' : kind === 'publish' ? '确认发布' : kind === 'memory-info' ? '应用' : '保存'}</button></div><p class="demo-note">${kind === 'group-employees' ? '入群成功后保存服务关联，机器人将能接收该群中的消息。' : kind === 'memory-info' ? '应用后，点击内容区顶部的保存，与正文和路径一起保存。' : '保存到本机工作台'}</p></form>`,
+    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'group-employees' ? '确认添加到飞书群' : kind === 'publish' ? '确认发布' : kind === 'memory-info' ? '应用' : '保存'}</button></div><p class="demo-note">${kind === 'group-employees' ? '入群成功后保存服务关联，机器人将能接收该群中的消息。' : kind === 'memory-info' ? '应用后，点击内容区顶部的保存，与正文和路径一起保存。' : ['memory', 'store'].includes(kind) ? '直接保存到 MA 记忆库' : '保存到本机工作台'}</p></form>`,
   );
 }
 function confirmAction(title, text, action, id) {
@@ -1223,6 +1291,26 @@ document.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'add-skill') return browseMaSkills(owner.id);
+  if (action === 'view-ma-sync' || action === 'sync-ma-agent') {
+    target.disabled = true;
+    try {
+      const state = await request(
+        `/employees/${encodeURIComponent(id)}/${action === 'sync-ma-agent' ? 'sync-ma' : 'feishu'}`,
+        action === 'sync-ma-agent' ? 'POST' : 'GET',
+        action === 'sync-ma-agent' ? {} : undefined,
+      );
+      modal(
+        'MA 配置同步',
+        `<p>${state.agentId ? (state.configurationSynced ? '已同步到 MA' : '配置有变更，待同步到 MA') : '尚未创建 MA Agent，请先完成飞书接入'}</p>
+        ${state.agentId ? `<p class="muted">Agent：${esc(state.agentId)}${state.agentVersion ? ` · v${esc(state.agentVersion)}` : ''}</p><p class="muted">同步已保存的名称、描述、身份、知识与规则、模型及技能。同步后在飞书发送 /new 创建新 Session，新配置才会生效；旧 Session 的文件仍留在原会话。</p><div class="actions">${button('关闭', 'close')}${button('同步已保存配置', 'sync-ma-agent', id, true)}</div>` : button('关闭', 'close')}`,
+      );
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      target.disabled = false;
+    }
+    return;
+  }
   if (action === 'bind-ma-skill') {
     target.disabled = true;
     try {
@@ -1308,6 +1396,83 @@ document.addEventListener('click', async (event) => {
     );
   }
   if (!owner) return;
+  if (action === 'delete-ma-store')
+    return confirmAction(
+      '删除 MA 记忆库',
+      '将永久删除 MA 中的记忆库及全部条目，无法恢复。已挂载该库的会话需要 /new 后继续。',
+      'confirm-delete-ma-store',
+      id,
+    );
+  if (action === 'confirm-delete-ma-store') {
+    target.disabled = true;
+    try {
+      acceptServer(await request(`${memoryApiBase()}/stores/${encodeURIComponent(id)}`, 'DELETE', {}));
+      selectedMemoryStore = '';
+      closeModal();
+      loadedMemoryKey = '';
+      await refreshRemoteMemory();
+      toast('记忆库已从 MA 删除');
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      target.disabled = false;
+    }
+    return;
+  }
+  if (action === 'organize-memory') {
+    if (owner.memoryMode !== 'ma' || !owner.memoryStores.length) return toast('请先创建 MA 项目记忆库');
+    modal(
+      '整理近期项目 Session',
+      `<form id="organize-memory-form" data-project-id="${esc(owner.id)}" data-request-id="${uid()}"><p class="muted">独立 MA Agent 整理最近 7 天、最多 10 个已完成的项目 Session，直接写入目标 MA 记忆库。可在任务页查看结果。</p>${select(
+        '数字员工',
+        'employeeId',
+        '',
+        data.employees
+          .filter((e) => owner.groups.some((g) => g.employeeIds.includes(e.id)))
+          .map((e) => [e.id, e.name]),
+      )}${select(
+        '目标记忆库',
+        'storeId',
+        selectedMemoryStore,
+        owner.memoryStores.map((s) => [s.id, s.name]),
+      )}<div class="actions">${button('取消', 'close')}<button type="submit" class="primary">开始整理</button></div></form>`,
+    );
+    return;
+  }
+  if (action === 'migrate-ma-memory' || action === 'refresh-memory') {
+    target.disabled = true;
+    try {
+      if (action === 'migrate-ma-memory')
+        acceptServer(await request(memoryApiBase() + '/migrate', 'POST', {}));
+      loadedMemoryKey = '';
+      memoryLoadError = '';
+      await refreshRemoteMemory();
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      target.disabled = false;
+    }
+    return;
+  }
+  if (action === 'confirm-delete-memory' && owner.memoryMode === 'ma') {
+    const entry = owner.memories.find((m) => m.id === id);
+    target.disabled = true;
+    try {
+      await request(`${memoryApiBase()}/entries/${encodeURIComponent(id)}`, 'DELETE', {
+        storeId: entry.storeId,
+        sha: entry.sha,
+      });
+      closeModal();
+      dirty = false;
+      await refreshRemoteMemory();
+      toast('已从 MA 删除');
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      target.disabled = false;
+    }
+    return;
+  }
   if (action === 'memory-info') {
     const values = Object.fromEntries(new FormData($('#memory-entry-form')));
     return editDialog('memory-info', { id, ...values });
@@ -1381,7 +1546,12 @@ document.addEventListener('click', async (event) => {
     return commit('版本已切换');
   }
   if (action.startsWith('remove-') || action === 'delete-memory')
-    return confirmAction('确认移除', '确认从本机工作台移除此记录？', 'confirm-' + action, id);
+    return confirmAction(
+      '确认移除',
+      action === 'delete-memory' ? '将从 MA 永久删除此条记忆，确认继续？' : '确认从本机工作台移除此记录？',
+      'confirm-' + action,
+      id,
+    );
   if (action.startsWith('confirm-remove-') || action === 'confirm-delete-memory') {
     if (action === 'confirm-remove-group') {
       data.groups.find((group) => group.id === id).projectId = '';
@@ -1437,6 +1607,24 @@ document.addEventListener('submit', async (event) => {
     owner.updatedAt = new Date().toISOString();
     return commit('配置已保存');
   }
+  if (form.id === 'organize-memory-form') {
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      await request(`/projects/${encodeURIComponent(form.dataset.projectId)}/organize-memory`, 'POST', {
+        ...values,
+        requestId: form.dataset.requestId,
+      });
+      closeModal();
+      location.hash = '#tasks';
+      toast('记忆整理已开始');
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      submit.disabled = false;
+    }
+    return;
+  }
   if (form.id !== 'dialog-form' && form.id !== 'memory-entry-form') return;
   const kind = form.dataset.kind,
     id = form.dataset.id;
@@ -1470,9 +1658,8 @@ document.addEventListener('submit', async (event) => {
     data.employees.push(item);
     closeModal();
     if (await commit('员工已创建')) {
-      history.pushState(null, '', `#employees/${item.id}/channels`);
+      history.pushState(null, '', `#employees/${item.id}/basic`);
       render();
-      await openFeishu(item.id, true);
     }
     return;
   }
@@ -1488,30 +1675,41 @@ document.addEventListener('submit', async (event) => {
         members: [{ id: uid(), name: '本机管理员', account: 'local-admin', permission: 'manage' }],
       });
   }
-  if (kind === 'memory') {
-    values.path = values.path.trim();
-    const error = memoryError(owner, values, id);
-    if (error) return toast(error);
-    const record = { id: id || uid(), ...values, updatedAt: new Date().toISOString() };
-    if (id)
-      Object.assign(
-        owner.memories.find((m) => m.id === id),
-        record,
-      );
-    else owner.memories.push(record);
-    selectedMemoryStore = values.storeId;
-    selectedMemoryEntry = record.id;
-    editingMemory = false;
-  }
-  if (kind === 'store') {
-    values.name = values.name.trim();
-    if (!values.name) return toast('请填写记忆库名称');
-    if (id)
-      Object.assign(
-        owner.memoryStores.find((store) => store.id === id),
-        values,
-      );
-    else owner.memoryStores.push({ id: uid(), ...values });
+  if (kind === 'store' || kind === 'memory') {
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      if (kind === 'store') {
+        form.dataset.requestId ||= uid();
+        const result = await request(
+          `${memoryApiBase()}/stores${id ? '/' + encodeURIComponent(id) : ''}`,
+          'POST',
+          { ...values, requestId: form.dataset.requestId },
+        );
+        acceptServer(result);
+      } else {
+        const existing = owner.memories.find((m) => m.id === id);
+        if (existing && existing.storeId !== values.storeId)
+          throw new Error('暂不支持跨记忆库移动，请在目标库新增条目后处理原条目');
+        const result = await request(
+          `${memoryApiBase()}/entries${id ? '/' + encodeURIComponent(id) : ''}`,
+          'POST',
+          { ...values, sha: existing?.sha },
+        );
+        selectedMemoryStore = values.storeId;
+        selectedMemoryEntry = result.id;
+      }
+      dirty = false;
+      closeModal();
+      loadedMemoryKey = '';
+      await refreshRemoteMemory();
+      toast('已保存到 MA');
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      submit.disabled = false;
+    }
+    return;
   }
   if (kind === 'group') {
     if (!values.name || !values.chatId) return toast('请补全群聊信息');

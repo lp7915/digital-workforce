@@ -214,3 +214,40 @@ test('补权返回其他应用时拒绝替换原绑定', async () => {
     w.close();
   }
 });
+
+test('已有员工配置可同步 MA，重复请求不重复更新，页面能识别后续草稿变更', async () => {
+  const w = workspace();
+  let updates = 0;
+  const channels = new WorkspaceChannels(w, {
+    dataDir: '/tmp',
+    ark: () =>
+      ({
+        getAgent: async () => ({ id: 'agent-test', version: '1' }),
+        updateAgent: async (_id: any, _version: any, config: any) => {
+          updates++;
+          assert.equal(config.name, '助手');
+          return { id: 'agent-test', version: '2' };
+        },
+      }) as any,
+  });
+  w.db
+    .prepare('INSERT INTO workspace_channels VALUES (?,?)')
+    .run(
+      'e',
+      JSON.stringify({ employeeId: 'e', agentId: 'agent-test', appId: 'cli-test', status: 'connected' }),
+    );
+  try {
+    await Promise.all([channels.syncAgent('e'), channels.syncAgent('e')]);
+    assert.equal(updates, 1);
+    assert.equal(channels.view('e').configurationSynced, true);
+    const latest = w.read();
+    latest.state.employees[0].identity = '新身份';
+    w.save(latest.state, latest.revision);
+    assert.equal(channels.view('e').configurationSynced, false);
+    await channels.syncAgent('e');
+    assert.equal(updates, 2);
+  } finally {
+    await channels.stop();
+    w.close();
+  }
+});

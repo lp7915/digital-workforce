@@ -1,0 +1,374 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { LocalWorkspace } from '../src/workforce/workspace.ts';
+import { MaMemoryApi } from '../src/workforce/ma-memory.ts';
+import { WorkspaceMemories } from '../src/workforce/workspace-memories.ts';
+import { SessionMemory, memoryScope } from '../src/workforce/session-memory.ts';
+import { MemoryOrganizer } from '../src/workforce/memory-organizer.ts';
+
+const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+function fixture() {
+  const workspace = new LocalWorkspace(':memory:');
+  const employee = {
+    id: 'e',
+    name: '助手',
+    enabled: true,
+    environment: { model: '待配置', timeout: 300 },
+    skills: [],
+    credentials: [],
+    channels: { feishu: { enabled: false, appId: '' }, doubao: { enabled: false, agentId: '' } },
+    versions: [],
+    activeVersion: null,
+    memoryStores: [{ id: 'es', name: '员工库' }],
+    memories: [{ id: 'em', storeId: 'es', path: 'identity.md', content: '员工知识' }],
+  };
+  workspace.save(
+    {
+      employees: [employee],
+      projects: [
+        {
+          id: 'p',
+          name: '项目',
+          memoryStores: [{ id: 'ps', name: '项目库' }],
+          memories: [{ id: 'pm', storeId: 'ps', path: 'notes/brief.md', content: '原始项目背景' }],
+          members: [{ id: 'u', name: '成员', account: 'ou_writer', permission: 'manage' }],
+          groups: [],
+        },
+      ],
+      groups: [{ id: 'g', chatId: 'oc_group', name: '群', projectId: 'p', employeeIds: ['e'] }],
+    },
+    0,
+  );
+  const stores = new Map<string, any>(),
+    calls: any[] = [],
+    sessions = new Map<string, any>();
+  let sequence = 0,
+    loseCreate = false;
+  const fetcher = async (url: any, init: any) => {
+    const path = new URL(url).pathname.replace('/api/v3', ''),
+      method = init.method || 'GET',
+      body = init.body ? JSON.parse(init.body) : undefined;
+    calls.push({ path, method, body });
+    assert.equal(init.headers.Authorization, 'Bearer test-key');
+    const reply = (value: any, status = 200) =>
+      new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
+    if (path === '/memory_stores' && method === 'POST') {
+      const id = `memstore-${++sequence}`;
+      const store = { ...body, id, type: 'memory_store', memory_count: 0, entries: new Map() };
+      stores.set(id, store);
+      if (loseCreate) {
+        loseCreate = false;
+        throw new Error('lost response');
+      }
+      return reply({ ...store, entries: undefined });
+    }
+    if (path === '/memory_stores')
+      return reply({ data: [...stores.values()].map((s) => ({ ...s, entries: undefined })), next_page: '' });
+    const match = path.match(/^\/memory_stores\/([^/]+)(?:\/memories(?:\/([^/]+))?)?$/);
+    if (match) {
+      const store = stores.get(match[1]);
+      if (!store) return reply({}, 404);
+      const id = match[2];
+      if (!path.includes('/memories')) {
+        if (method === 'POST') Object.assign(store, body);
+        return reply({ ...store, memory_count: store.entries.size, entries: undefined });
+      }
+      if (id) {
+        const entry = store.entries.get(id);
+        if (!entry) return reply({}, 404);
+        if (method === 'DELETE') {
+          store.entries.delete(id);
+          return reply({ deleted: true });
+        }
+        if (method === 'POST') {
+          if (entry.path !== body.path) {
+            store.entries.delete(id);
+            entry.id = `mem-${++sequence}`;
+            store.entries.set(entry.id, entry);
+          }
+          Object.assign(entry, body, {
+            content_sha256: sha(body.content),
+            updated_at: new Date().toISOString(),
+          });
+        }
+        return reply(entry);
+      }
+      if (method === 'GET')
+        return reply({
+          data: [...store.entries.values()].map((e: any) => ({ ...e, content: undefined })),
+          next_page: '',
+        });
+      if ([...store.entries.values()].some((e: any) => e.path === body.path)) return reply({}, 409);
+      const entry = {
+        ...body,
+        id: `mem-${++sequence}`,
+        type: 'memory',
+        memory_store_id: store.id,
+        content_sha256: sha(body.content),
+        updated_at: new Date().toISOString(),
+      };
+      store.entries.set(entry.id, entry);
+      return reply({ ...entry, content: undefined });
+    }
+    if (path === '/agents') return reply({ id: 'agent-organizer' });
+    if (path === '/sessions' && method === 'POST') {
+      sessions.set('sesn-organizer', { ...body, id: 'sesn-organizer', events: [] });
+      return reply({ id: 'sesn-organizer' });
+    }
+    const sessionPath = path.match(/^\/sessions\/([^/]+)(\/events)?$/);
+    if (sessionPath) {
+      const session = sessions.get(sessionPath[1]);
+      if (!session) return reply({}, 404);
+      if (!sessionPath[2]) return reply(session);
+      if (method === 'GET') return reply({ data: session.events, next_page: '' });
+      session.events.push(...body.events.map((e: any) => ({ ...e, id: `evt-${++sequence}` })));
+      if (body.events[0].type === 'user.message')
+        session.events.push(
+          {
+            id: 'tool-read',
+            type: 'agent.custom_tool_use',
+            name: 'read_source_session',
+            input: { sessionId: 'sesn-source' },
+          },
+          {
+            id: 'idle-read',
+            type: 'session.status_idle',
+            stop_reason: { type: 'requires_action', event_ids: ['tool-read'] },
+          },
+        );
+      else if (body.events[0].custom_tool_use_id === 'tool-read')
+        session.events.push(
+          {
+            id: 'tool-write',
+            type: 'agent.custom_tool_use',
+            name: 'write_project_memory',
+            input: {
+              path: 'decisions/launch.md',
+              content: '上线日期：10 月 15 日',
+              sourceSessionIds: ['sesn-source'],
+            },
+          },
+          {
+            id: 'idle-write',
+            type: 'session.status_idle',
+            stop_reason: { type: 'requires_action', event_ids: ['tool-write'] },
+          },
+        );
+      else
+        session.events.push({ id: 'done', type: 'session.status_idle', stop_reason: { type: 'end_turn' } });
+      return reply({});
+    }
+    throw new Error(`unexpected ${method} ${path}`);
+  };
+  const api = new MaMemoryApi({ apiKey: () => 'test-key' }, fetcher as any);
+  const memories = new WorkspaceMemories(workspace, api);
+  return {
+    workspace,
+    api,
+    memories,
+    stores,
+    calls,
+    sessions,
+    lose: () => {
+      loseCreate = true;
+    },
+  };
+}
+
+test('迁移后所有正文在 MA，本地保存仅保留关联，重复迁移不重复创建', async () => {
+  const f = fixture();
+  try {
+    await f.memories.migrate('projects', 'p');
+    await f.memories.migrate('projects', 'p');
+    const project = f.workspace.read().state.projects[0];
+    assert.equal(project.memoryMode, 'ma');
+    assert.deepEqual(project.memories, []);
+    const list = await f.memories.list('projects', 'p', 'ps');
+    assert.equal(list.entries[0].path, 'notes/brief.md');
+    assert.equal(
+      (await f.memories.detail('projects', 'p', 'ps', list.entries[0].id)).content,
+      '原始项目背景',
+    );
+    assert.equal(f.calls.filter((c) => c.path === '/memory_stores' && c.method === 'POST').length, 1);
+    const view = f.workspace.read();
+    view.state.projects[0].memories = [{ content: '不能重新落本地' }];
+    view.state.projects[0].memoryStores = [];
+    f.workspace.save(view.state, view.revision);
+    assert.equal(f.workspace.read().state.projects[0].memoryStores.length, 1);
+    assert.deepEqual(f.workspace.read().state.projects[0].memories, []);
+  } finally {
+    f.workspace.close();
+  }
+});
+test('Store 创建回包丢失后按 metadata 核查恢复，不丢失旧正文或重复创建', async () => {
+  const f = fixture();
+  try {
+    f.lose();
+    await assert.rejects(f.memories.migrate('projects', 'p'), /未确认/);
+    assert.equal(f.workspace.read().state.projects[0].memories[0].content, '原始项目背景');
+    await f.memories.migrate('projects', 'p');
+    assert.equal(f.stores.size, 1);
+    assert.deepEqual(f.workspace.read().state.projects[0].memories, []);
+  } finally {
+    f.workspace.close();
+  }
+});
+test('MA 原位修改路径及正文，旧 SHA 阻止覆盖，不能越过记忆库归属', async () => {
+  const f = fixture();
+  try {
+    await f.memories.migrate('projects', 'p');
+    const list = await f.memories.list('projects', 'p', 'ps');
+    const entry = await f.memories.detail('projects', 'p', 'ps', list.entries[0].id);
+    const updated = await f.memories.saveEntry(
+      'projects',
+      'p',
+      { storeId: 'ps', path: 'renamed.md', content: '新内容', sha: entry.sha },
+      entry.id,
+    );
+    assert.notEqual(updated.id, entry.id);
+    assert.equal(updated.path, 'renamed.md');
+    assert.equal(updated.content, '新内容');
+    await assert.rejects(
+      f.memories.saveEntry(
+        'projects',
+        'p',
+        { storeId: 'ps', path: 'x.md', content: '旧编辑', sha: entry.sha },
+        updated.id,
+      ),
+      /已更新/,
+    );
+    await assert.rejects(f.memories.detail('employees', 'e', 'ps', entry.id), /迁移|未关联/);
+    await f.memories.deleteEntry('projects', 'p', 'ps', updated.id, updated.sha);
+    assert.equal((await f.memories.list('projects', 'p', 'ps')).entries.length, 0);
+  } finally {
+    f.workspace.close();
+  }
+});
+test('Session 创建原生挂载去重，单聊只挂员工库，关联变化拒绝旧 Session', async () => {
+  const f = fixture();
+  try {
+    await f.memories.migrate('employees', 'e');
+    await f.memories.migrate('projects', 'p');
+    const policy = new SessionMemory(f.workspace, f.api),
+      message: any = { conversationType: 'group', conversationId: 'oc_group' };
+    const request = policy.build('e', message, {
+      agent: 'agent-e',
+      resources: [{ type: 'file', file_id: 'f' }],
+    });
+    assert.equal(request.resources.filter((r) => r.type === 'memory_store').length, 2);
+    assert.ok(
+      request.resources.filter((r) => r.type === 'memory_store').every((r) => r.access === 'read_only'),
+    );
+    assert.equal(
+      memoryScope(f.workspace.read().state, 'e', { conversationType: 'direct', conversationId: 'dm' })
+        .storeIds.length,
+      1,
+    );
+    f.sessions.set('sesn-test', { ...request, id: 'sesn-test' });
+    await policy.validate('e', message, 'sesn-test');
+    const current = f.workspace.read();
+    current.state.groups[0].projectId = '';
+    f.workspace.save(current.state, current.revision);
+    await assert.rejects(policy.validate('e', message, 'sesn-test'), /旧项目上下文/);
+  } finally {
+    f.workspace.close();
+  }
+});
+test('MA 分页按 next_page 拉全，重复游标失败', async () => {
+  let reads = 0;
+  const api = new MaMemoryApi({ apiKey: () => 'key' }, async (url: any) => {
+    reads++;
+    return new Response(
+      JSON.stringify({ data: [{ id: reads }], next_page: String(url).includes('page=') ? '' : 'cursor' }),
+    );
+  });
+  assert.equal((await api.entries('memstore-x')).length, 2);
+  const broken = new MaMemoryApi(
+    { apiKey: () => 'key' },
+    async () => new Response(JSON.stringify({ data: [], next_page: 'same' })),
+  );
+  await assert.rejects(broken.entries('memstore-x'), /游标重复/);
+});
+test('整理 Agent 使用 MA Custom Tool 完成模拟写回链路，权限与来源范围由后端限定', async () => {
+  const f = fixture();
+  let organizer: MemoryOrganizer | undefined;
+  try {
+    await f.memories.migrate('employees', 'e');
+    await f.memories.migrate('projects', 'p');
+    const policy = new SessionMemory(f.workspace, f.api),
+      message: any = { conversationType: 'group', conversationId: 'oc_group' };
+    f.sessions.set('sesn-source', {
+      ...policy.build('e', message, { agent: 'agent-e' }),
+      id: 'sesn-source',
+      events: [
+        {
+          id: 'source-user',
+          type: 'user.message',
+          content: [{ type: 'text', text: '确认上线日期为10月15日' }],
+        },
+      ],
+    });
+    await policy.validate('e', message, 'sesn-source');
+    policy.completed('sesn-source');
+    organizer = new MemoryOrganizer(f.memories, policy, () => ({
+      agentId: 'agent-e',
+      environmentId: 'env-e',
+    }));
+    assert.throws(
+      () =>
+        organizer!.start(
+          { requestId: 'bad', projectId: 'p', employeeId: 'e', storeId: 'ps' },
+          'ou_reader',
+          'oc_group',
+        ),
+      /改写权限/,
+    );
+    const job = organizer.start(
+      { requestId: 'good', projectId: 'p', employeeId: 'e', storeId: 'ps' },
+      'ou_writer',
+      'oc_group',
+    );
+    await assert.rejects(
+      organizer.execute(job, { name: 'read_source_session', input: { sessionId: 'sesn-other' } }),
+      /范围/,
+    );
+    for (let i = 0; i < 70 && ['queued', 'running'].includes(job.status); i++)
+      await new Promise((r) => setTimeout(r, 100));
+    assert.equal(job.status, 'completed');
+    assert.equal(job.writes.length, 1);
+    const saved = await f.memories.detail('projects', 'p', 'ps', job.writes[0].id);
+    assert.ok(saved.content.includes('10 月 15 日'));
+    assert.ok(saved.content.includes('sesn-source'));
+    const remote = f.calls.find((c) => c.path === '/sessions' && c.method === 'POST');
+    assert.deepEqual(remote.body.vault_ids, []);
+    assert.equal(remote.body.resources[0].type, 'memory_store');
+    assert.ok(f.calls.some((c) => c.body?.events?.[0]?.type === 'user.custom_tool_result'));
+  } finally {
+    await organizer?.stop();
+    f.workspace.close();
+  }
+});
+
+test('排队写入在调用 MA 前重新校验权限，撤权不产生写入', async () => {
+  const f = fixture();
+  try {
+    await f.memories.migrate('projects', 'p');
+    const before = f.calls.filter((c) => c.method === 'POST').length;
+    await assert.rejects(
+      f.memories.saveEntry(
+        'projects',
+        'p',
+        { storeId: 'ps', path: 'blocked.md', content: '不应写入' },
+        undefined,
+        () => {
+          throw new Error('权限已撤回');
+        },
+      ),
+      /权限已撤回/,
+    );
+    assert.equal(f.calls.filter((c) => c.method === 'POST').length, before);
+  } finally {
+    f.workspace.close();
+  }
+});

@@ -1,3 +1,7 @@
+import { SessionMemory } from './session-memory.ts';
+import { MemoryOrganizer } from './memory-organizer.ts';
+import { MaMemoryApi } from './ma-memory.ts';
+import { WorkspaceMemories } from './workspace-memories.ts';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -19,7 +23,13 @@ lock.acquireRuntimeLock();
 const w = new Workforce(resolve(dataDir, 'workforce.db'));
 const workspace = new LocalWorkspace(resolve(dataDir, 'workspace.db'));
 migrateLocalSkills(workspace);
+const maConfig = new MaConfiguration(dataDir);
+const memories = new WorkspaceMemories(workspace, new MaMemoryApi(maConfig));
 const channels = new WorkspaceChannels(workspace, { dataDir });
+const sessionMemory = new SessionMemory(workspace, memories.api);
+const organizer = new MemoryOrganizer(memories, sessionMemory, (id) => channels.runtimeConfig(id));
+channels.organizer = organizer;
+channels.memories = memories;
 const tokenPath = resolve(dataDir, 'admin-token');
 if (!existsSync(tokenPath)) writeFileSync(tokenPath, randomBytes(32).toString('hex'), { mode: 0o600 });
 saveAccessToken(w, { id: 'admin', role: 'admin' }, readFileSync(tokenPath, 'utf8').trim());
@@ -55,7 +65,9 @@ const { server, url } = await createWeb(w, {
   workspace,
   channels,
   feishuGroups: new FeishuGroups(workspace, channels),
-  maConfig: new MaConfiguration(dataDir),
+  maConfig,
+  memories,
+  organizer,
 });
 channels.resume();
 const taskInterval = setInterval(() => {
@@ -85,6 +97,7 @@ const stop = async () => {
   stopping = true;
   clearInterval(interval);
   clearInterval(taskInterval);
+  await organizer.stop();
   await channels.stop();
   server.close(() => {
     w.close();

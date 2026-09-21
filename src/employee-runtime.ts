@@ -11,9 +11,10 @@ export function createEmployeeRuntime(input: {
   channel: Pick<ChannelAdapter, "reply" | "download"> & Partial<ChannelAdapter>;
   config: { feishuAppId: string; feishuAppSecret: string; arkAgentId: string; arkEnvironmentId: string; arkVaultId: string; sessionTimeoutMs: number };
   sessionConfiguration?: GatewayOptions["sessionConfiguration"];
+  buildSessionRequest?: GatewayOptions["buildSessionRequest"];
   ensureBotToken: (allowCreate?: boolean) => Promise<void>;
   runtimeRevision?: string; durableQueue?: boolean; pdfInputMode?: "file" | "sandbox";
-  businessHooks?: Pick<GatewayOptions, "beforeBusinessTurn" | "prepareBusinessInput" | "observeBusinessResult" | "afterBusinessTurn">;
+  businessHooks?: Pick<GatewayOptions, "beforeBusinessTurn" | "prepareBusinessInput" | "observeBusinessResult" | "afterBusinessTurn" | "validateBusinessSession" | "handleBusinessCommand">;
 }) {
   const { store, ark, config, sessionConfiguration, ensureBotToken } = input;
   const runtimeRevision = input.runtimeRevision || "employee-runtime-v1";
@@ -43,7 +44,7 @@ export function createEmployeeRuntime(input: {
     }
   );
   gateway = new Gateway(store, ark, (message, outbound, observer) => channel.reply(message, outbound, observer), {
-    appId: config.feishuAppId, sessionConfiguration, sessionConfigurationRevision: runtimeRevision,
+    appId: config.feishuAppId, sessionConfiguration, buildSessionRequest: input.buildSessionRequest, sessionConfigurationRevision: runtimeRevision,
     pdfInputMode: input.pdfInputMode || "file",
     agentId: config.arkAgentId, environmentId: config.arkEnvironmentId, vaultId: config.arkVaultId,
     timeoutMs: config.sessionTimeoutMs, platformAccess: true, downloadAttachment: (resource, message, maxBytes) => channel.download(resource, message, maxBytes),

@@ -1,3 +1,5 @@
+import type { MemoryOrganizer } from './memory-organizer.ts';
+import type { WorkspaceMemories } from './workspace-memories.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -62,6 +64,8 @@ export async function createWeb(
     channels?: WorkspaceChannels;
     maConfig?: MaConfiguration;
     feishuGroups?: FeishuGroups;
+    memories?: WorkspaceMemories;
+    organizer?: MemoryOrganizer;
   },
 ) {
   const lab = new LocalLab(w);
@@ -85,6 +89,48 @@ export async function createWeb(
       if (options.workspace && path.startsWith('/api/workspace')) {
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DomainError('拒绝跨站请求', 403);
         const workspace = options.workspace;
+        const organize = path.match(/^\/api\/workspace\/projects\/([^/]+)\/organize-memory$/);
+        if (organize && options.organizer && method === 'POST') {
+          const input = await body(req);
+          return json(
+            res,
+            options.organizer.start({ ...input, projectId: decodeURIComponent(organize[1]) }),
+            202,
+          );
+        }
+        const memoryOwner = path.match(
+          /^\/api\/workspace\/(employees|projects)\/([^/]+)\/memory(?:\/(migrate|stores|entries)(?:\/([^/]+))?)?$/,
+        );
+        if (memoryOwner && options.memories) {
+          const [, kind, encodedId, resource, encodedEntry] = memoryOwner;
+          const id = decodeURIComponent(encodedId),
+            entryId = encodedEntry ? decodeURIComponent(encodedEntry) : undefined;
+          const storeId = url.searchParams.get('storeId') || '';
+          if (!resource && method === 'GET')
+            return json(res, await options.memories.list(kind, id, storeId || undefined));
+          if (resource === 'migrate' && method === 'POST') {
+            await body(req);
+            return json(res, await options.memories.migrate(kind, id));
+          }
+          if (resource === 'stores' && method === 'POST')
+            return json(res, await options.memories.saveStore(kind, id, await body(req), entryId));
+          if (resource === 'stores' && method === 'DELETE' && entryId) {
+            await body(req);
+            return json(res, await options.memories.deleteStore(kind, id, entryId));
+          }
+          if (resource === 'entries' && method === 'GET' && entryId)
+            return json(res, await options.memories.detail(kind, id, storeId, entryId));
+          if (resource === 'entries' && method === 'POST')
+            return json(
+              res,
+              await options.memories.saveEntry(kind, id, await body(req, 256 * 1024), entryId),
+            );
+          if (resource === 'entries' && method === 'DELETE' && entryId) {
+            const input = await body(req);
+            return json(res, await options.memories.deleteEntry(kind, id, input.storeId, entryId, input.sha));
+          }
+          throw new DomainError('记忆操作不存在', 404);
+        }
         if (path === '/api/workspace/ma-skills' && options.maConfig && method === 'GET')
           return json(res, await new MaSkills(options.maConfig).list());
         const skillBinding = path.match(/^\/api\/workspace\/employees\/([^/]+)\/skills$/);
@@ -141,6 +187,11 @@ export async function createWeb(
         if (path === '/api/workspace/ma-config/verify' && options.maConfig && method === 'POST') {
           await body(req);
           return json(res, await options.maConfig.verify());
+        }
+        const syncAgent = path.match(/^\/api\/workspace\/employees\/([^/]+)\/sync-ma$/);
+        if (syncAgent && options.channels && method === 'POST') {
+          await body(req);
+          return json(res, await options.channels.syncAgent(decodeURIComponent(syncAgent[1])));
         }
         const upgrade = path.match(/^\/api\/workspace\/employees\/([^/]+)\/feishu\/upgrade$/);
         if (upgrade && options.channels && method === 'POST') {
