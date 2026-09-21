@@ -81,6 +81,8 @@ test('分页保留群主和管理员，过滤普通成员', async () => {
       ['oc_owner', 'oc_manager'],
     );
     assert.equal(result.pageToken, 'next');
+    const listCall = f.calls.find((args) => args.includes('+chat-list'))!;
+    assert.equal(listCall[listCall.indexOf('--page-size') + 1], '100');
     assert.ok(f.calls.find((args) => args.includes('cursor')));
   } finally {
     f.workspace.close();

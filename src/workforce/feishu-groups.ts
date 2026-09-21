@@ -70,7 +70,7 @@ export class FeishuGroups {
     const page = await this.call([
       '+chat-list',
       '--page-size',
-      '20',
+      '100',
       '--sort',
       'active_time',
       ...(pageToken ? ['--page-token', pageToken] : []),
