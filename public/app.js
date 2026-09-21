@@ -20,8 +20,35 @@ const initialEmployee = (id, name, description) => ({
   updatedAt: '2026-09-21T09:00:00+08:00',
 });
 function snapshot(employee) {
-  const { versions, activeVersion, memories, updatedAt, ...configuration } = employee;
+  const { versions, activeVersion, memories, memoryStores, updatedAt, ...configuration } = employee;
   return copy(configuration);
+}
+function migrateMemories(state) {
+  for (const owner of [...state.employees, ...state.projects]) {
+    owner.memoryStores ||= [{ id: 'default', name: '默认记忆库', description: '' }];
+    owner.memories.forEach((entry) => {
+      entry.storeId ||= owner.memoryStores[0].id;
+      entry.path ||= `notes/${entry.id}.md`;
+    });
+  }
+  return state;
+}
+function memoryError(owner, values, id) {
+  if (!owner.memoryStores.some((store) => store.id === values.storeId)) return '请选择记忆库';
+  if (
+    !values.path ||
+    /[\\\\\x00-\x1f]/.test(values.path) ||
+    values.path.split('/').some((part) => !part || part === '.' || part === '..')
+  )
+    return '请填写有效的相对路径，例如 notes/brief.md';
+  if (!values.content.trim()) return '请填写文本内容';
+  if (
+    owner.memories.some(
+      (entry) => entry.id !== id && entry.storeId === values.storeId && entry.path === values.path,
+    )
+  )
+    return '该记忆库中已存在相同路径的条目';
+  return '';
 }
 function seed() {
   const strategist = initialEmployee('brand', '品牌策略顾问', '从 Brief 到策略方案，协助团队对齐品牌方向。');
@@ -128,11 +155,11 @@ const repository = {
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
       if (saved && ['employees', 'projects', 'observations'].every((key) => Array.isArray(saved[key])))
-        return saved;
+        return migrateMemories(saved);
     } catch {
       /* 浏览器存储不可用时保留当前会话演示。 */
     }
-    return seed();
+    return migrateMemories(seed());
   },
   save(next) {
     try {
@@ -358,8 +385,14 @@ function employeeDetail(e, section) {
       : content)
   );
 }
+let selectedMemoryStore = '';
 function memoryList(owner, project) {
-  return `<div class="section-toolbar"><p class="muted">${project ? '团队共同维护的项目事实与共识。' : '员工持续积累的偏好与经验。'}</p>${button('＋ 添加记忆', 'add-memory', '', true)}</div><div class="memory-grid">${owner.memories.map((memory) => `<article class="panel"><div class="memory-header"><h3>${esc(memory.title)}</h3><div class="actions">${button('编辑', 'edit-memory', memory.id)}${button('删除', 'delete-memory', memory.id)}</div></div><p class="memory-body">${esc(memory.content)}</p><div class="card-footer"><span>${esc(memory.source || '手动维护')}</span><span>${date(memory.updatedAt)}</span></div></article>`).join('')}</div>${!owner.memories.length ? empty('暂无记忆', project ? '记录已确认的项目事实，供团队协作使用。' : '添加员工的长期偏好与经验。') : ''}`;
+  migrateMemories(data);
+  const store = owner.memoryStores.find((item) => item.id === selectedMemoryStore);
+  if (!store)
+    return `<div class="section-toolbar"><p class="muted">${project ? '项目' : '员工'}记忆按记忆库组织，每个条目包含路径和文本内容。</p>${button('＋ 创建记忆库', 'add-store', '', true)}</div><div class="grid compact-cards">${owner.memoryStores.map((item) => `<article class="entity-card"><span class="entity-icon">▤</span><h3>${esc(item.name)}</h3><p class="card-description">${esc(item.description || '通过路径组织长期记忆')}</p><p class="muted">${owner.memories.filter((entry) => entry.storeId === item.id).length} 个条目</p><div class="actions">${button('查看条目', 'open-store', item.id, true)}${button('编辑', 'edit-store', item.id)}</div></article>`).join('')}</div>`;
+  const entries = owner.memories.filter((entry) => entry.storeId === store.id);
+  return `<div class="section-toolbar"><div>${button('← 记忆库', 'back-stores')} <strong>${esc(store.name)}</strong><p class="muted">${entries.length} 个条目 · 按路径组织，内容支持纯文本与 Markdown</p></div>${button('＋ 添加条目', 'add-memory', '', true)}</div><div class="memory-grid">${entries.map((memory) => `<article class="panel"><div class="memory-header"><h3 class="memory-path">${esc(memory.path)}</h3><div class="actions">${button('编辑', 'edit-memory', memory.id)}${button('删除', 'delete-memory', memory.id)}</div></div>${memory.title ? `<p class="muted">${esc(memory.title)}</p>` : ''}<p class="memory-body">${esc(memory.content)}</p><div class="card-footer"><span>${esc(memory.source || '手动维护')}</span><span>${date(memory.updatedAt)}</span></div></article>`).join('')}</div>${!entries.length ? empty('暂无条目', '添加一个路径和文本内容，开始维护记忆。') : ''}`;
 }
 function projectDetail(p, section) {
   let content = '';
@@ -433,11 +466,25 @@ function editDialog(kind, item = {}) {
       field('名称', 'name', item.name, '填写名称', true) + area('描述', 'description', item.description, 3);
   }
   if (kind === 'memory') {
-    title = item.id ? '编辑记忆' : '添加记忆';
+    title = item.id ? '编辑记忆条目' : '添加记忆条目';
     fields =
-      field('标题', 'title', item.title, '一句话概括记忆', true) +
-      area('内容', 'content', item.content, 7) +
+      select(
+        '记忆库',
+        'storeId',
+        item.storeId || selectedMemoryStore,
+        owner.memoryStores.map((store) => [store.id, store.name]),
+      ) +
+      field('条目路径', 'path', item.path, '例如 notes/brief.md', true) +
+      '<p class="muted">填写库内相对路径；同一记忆库内路径唯一。</p>' +
+      field('标题（可选）', 'title', item.title, '一句话说明条目') +
+      area('文本内容', 'content', item.content, 12) +
       field('来源说明', 'source', item.source, '例如：已确认的项目会议');
+  }
+  if (kind === 'store') {
+    title = item.id ? '编辑记忆库' : '创建记忆库';
+    fields =
+      field('记忆库名称', 'name', item.name, '例如 项目共识', true) +
+      area('描述', 'description', item.description, 3);
   }
   if (kind === 'group') {
     title = item.id ? '编辑群聊' : '关联群聊';
@@ -508,6 +555,15 @@ document.addEventListener('click', (event) => {
     );
   }
   if (!owner) return;
+  if (action === 'open-store' || action === 'back-stores') {
+    selectedMemoryStore = action === 'open-store' ? id : '';
+    return render();
+  }
+  if (action === 'edit-store')
+    return editDialog(
+      'store',
+      owner.memoryStores.find((store) => store.id === id),
+    );
   if (action.startsWith('add-')) return editDialog(action.slice(4));
   if (action === 'edit-memory')
     return editDialog(
@@ -607,7 +663,7 @@ document.addEventListener('submit', (event) => {
   if (form.id !== 'dialog-form') return;
   const kind = form.dataset.kind,
     id = form.dataset.id;
-  for (const key of Object.keys(values)) values[key] = values[key].trim();
+  for (const key of Object.keys(values)) if (key !== 'content') values[key] = values[key].trim();
   if (kind === 'employee') {
     if (!values.name) return toast('请填写名称');
     const item = initialEmployee(uid(), values.name, values.description);
@@ -630,7 +686,9 @@ document.addEventListener('submit', (event) => {
       });
   }
   if (kind === 'memory') {
-    if (!values.title || !values.content) return toast('请填写记忆标题和内容');
+    values.path = values.path.trim();
+    const error = memoryError(owner, values, id);
+    if (error) return toast(error);
     const record = { id: id || uid(), ...values, updatedAt: new Date().toISOString() };
     if (id)
       Object.assign(
@@ -638,6 +696,17 @@ document.addEventListener('submit', (event) => {
         record,
       );
     else owner.memories.push(record);
+    selectedMemoryStore = values.storeId;
+  }
+  if (kind === 'store') {
+    values.name = values.name.trim();
+    if (!values.name) return toast('请填写记忆库名称');
+    if (id)
+      Object.assign(
+        owner.memoryStores.find((store) => store.id === id),
+        values,
+      );
+    else owner.memoryStores.push({ id: uid(), ...values });
   }
   if (kind === 'group') {
     if (!values.name || !values.chatId || !values.employeeId) return toast('请补全群聊信息');
@@ -724,6 +793,7 @@ window.addEventListener('beforeunload', (event) => {
   }
 });
 window.addEventListener('hashchange', () => {
+  selectedMemoryStore = '';
   dirty = false;
   search = '';
   statusFilter = 'all';

@@ -1139,3 +1139,7 @@ code {
     display: none;
   }
 }
+.memory-path {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}

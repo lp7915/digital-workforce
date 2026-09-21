@@ -6,7 +6,8 @@ import { runInNewContext } from 'node:vm';
 const source = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
 function fixture(storage = new Map<string, string>()) {
   return runInNewContext(
-    source.slice(0, source.indexOf('let data =')) + '\n({ seed, snapshot, repository });',
+    source.slice(0, source.indexOf('let data =')) +
+      '\n({ seed, snapshot, repository, migrateMemories, memoryError });',
     {
       structuredClone,
       localStorage: {
@@ -25,6 +26,41 @@ test('前端发布快照独立于后续配置和员工记忆', () => {
   assert.equal(version.skills[0].name, 'Brief 分析');
   assert.equal('memories' in version, false);
   assert.equal('versions' in version, false);
+});
+
+test('旧记忆迁移到默认库后保留内容且重复迁移稳定', () => {
+  const { seed, migrateMemories } = fixture();
+  const data = seed();
+  const content = data.projects[0].memories[0].content;
+  migrateMemories(data);
+  const once = JSON.stringify(data);
+  migrateMemories(data);
+  assert.equal(JSON.stringify(data), once);
+  assert.equal(data.projects[0].memories[0].content, content);
+  assert.equal(data.projects[0].memories[0].path, 'notes/pm1.md');
+});
+
+test('同库重复路径被拒绝，不同库允许同名路径，编辑自身允许保留路径', () => {
+  const { repository, memoryError } = fixture();
+  const owner = repository.load().employees[0];
+  const entry = owner.memories[0];
+  assert.match(memoryError(owner, entry), /已存在/);
+  assert.equal(memoryError(owner, entry, entry.id), '');
+  owner.memoryStores.push({ id: 'other', name: '其他库' });
+  assert.equal(memoryError(owner, { ...entry, storeId: 'other' }), '');
+  assert.match(memoryError(owner, { ...entry, path: '../notes.md' }), /有效/);
+});
+
+test('库与条目刷新后保留且不进入员工配置版本', () => {
+  const { repository, snapshot } = fixture();
+  const data = repository.load();
+  const owner = data.employees[0];
+  owner.memoryStores.push({ id: 'work', name: '工作经验' });
+  Object.assign(owner.memories[0], { storeId: 'work', path: 'notes/偏好.md', content: '  原始文本\n' });
+  repository.save(data);
+  assert.equal(repository.load().employees[0].memories[0].content, '  原始文本\n');
+  assert.equal(repository.load().employees[0].memories[0].storeId, 'work');
+  assert.equal('memoryStores' in snapshot(owner), false);
 });
 
 test('浏览器刷新后保留员工配置和项目成员权限', () => {
