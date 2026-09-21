@@ -85,8 +85,13 @@ export async function createWeb(
           if (method === 'GET') return json(res, options.maConfig.status());
           if (method === 'PUT') {
             const input = await body(req, 8192);
-            return json(res, options.maConfig.save(input?.apiKey));
+            options.maConfig.save(input?.apiKey);
+            return json(res, await options.maConfig.verify());
           }
+        }
+        if (path === '/api/workspace/ma-config/verify' && options.maConfig && method === 'POST') {
+          await body(req);
+          return json(res, await options.maConfig.verify());
         }
         const upgrade = path.match(/^\/api\/workspace\/employees\/([^/]+)\/feishu\/upgrade$/);
         if (upgrade && options.channels && method === 'POST') {

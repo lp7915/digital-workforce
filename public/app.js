@@ -513,14 +513,16 @@ function paintMaStatus(state) {
   const status = $('#ma-status');
   if (!status) return;
   const verified = state?.configured && state?.connected === true;
-  status.className = `pill${verified ? ' green' : state?.configured ? ' amber' : ''}`;
+  status.className = `pill${verified ? ' green' : state?.verification === 'failed' ? ' red' : state?.configured ? ' amber' : ''}`;
   status.textContent = !state
     ? '方舟状态读取失败'
     : verified
       ? '方舟服务已连接'
-      : state.configured
-        ? '方舟已配置 · 待验证'
-        : '方舟未配置';
+      : state.verification === 'failed'
+        ? '方舟连接验证失败'
+        : state.configured
+          ? '方舟已配置 · 待验证'
+          : '方舟未配置';
   status.title = state?.message || '打开方舟配置查看详情';
 }
 async function refreshMaStatus() {
@@ -540,8 +542,9 @@ async function openMaConfig() {
       <p class="muted">用于数字员工调用方舟 MA。密钥仅保存到本机后端，不回显、不写入浏览器存储。页面配置优先于环境变量。</p>
       <form id="ma-config-form" autocomplete="off"><label for="ma-api-key">方舟 API Key</label>
       <input id="ma-api-key" type="password" name="apiKey" autocomplete="new-password" maxlength="4096" required placeholder="${state.configured ? '输入新密钥以替换；留空不修改' : '输入具备 MA 权限的 API Key'}" />
-      <p class="muted">${esc(state.message)} 已运行的 Channel 更换密钥后需重启本机服务；待接入员工可直接继续接入。</p>
-      <div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">保存配置</button></div></form>`,
+      <p id="ma-verification-message" class="muted" role="status">${esc(state.message)}</p>
+      <p class="muted">已运行的 Channel 更换密钥后需重启本机服务；待接入员工可直接继续接入。</p>
+      <div class="actions form-actions">${button('取消', 'close')}${state.configured ? button('重新验证已保存密钥', 'verify-ma') : ''}<button class="primary" type="submit">保存并验证</button></div></form>`,
     );
   } catch (error) {
     toast(error.message);
@@ -554,20 +557,55 @@ document.addEventListener('submit', async (event) => {
   const keyInput = form.elements.apiKey;
   const submit = form.querySelector('[type="submit"]');
   submit.disabled = true;
-  $('#ma-status').textContent = '正在保存方舟配置…';
+  const verifyButton = form.querySelector('[data-action="verify-ma"]');
+  if (verifyButton) verifyButton.disabled = true;
+  $('#ma-status').textContent = '正在保存并验证方舟连接…';
   $('#ma-status').className = 'pill';
   try {
     const state = await request('/ma-config', 'PUT', { apiKey: keyInput.value });
     paintMaStatus(state);
     keyInput.value = '';
-    closeModal();
-    toast('方舟 API Key 已保存，可继续员工的飞书接入');
+    if (state.connected) {
+      closeModal();
+      toast('方舟服务已连接');
+    } else {
+      $('#ma-verification-message').textContent = `密钥已保存。${state.message}`;
+      if (!verifyButton) {
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.dataset.action = 'verify-ma';
+        retry.textContent = '重新验证已保存密钥';
+        submit.before(retry);
+      }
+    }
   } catch (error) {
     keyInput.value = '';
     toast(error.message);
     void refreshMaStatus();
   } finally {
     submit.disabled = false;
+    if (verifyButton) verifyButton.disabled = false;
+  }
+});
+document.addEventListener('click', async (event) => {
+  const target = event.target.closest('[data-action="verify-ma"]');
+  if (!target) return;
+  const form = $('#ma-config-form');
+  const submit = form.querySelector('[type="submit"]');
+  target.disabled = submit.disabled = true;
+  $('#ma-status').textContent = '正在验证方舟连接…';
+  $('#ma-status').className = 'pill';
+  const feedback = $('#ma-verification-message');
+  feedback.textContent = '正在验证已保存密钥的 MA 只读访问权限…';
+  try {
+    const state = await request('/ma-config/verify', 'POST', {});
+    paintMaStatus(state);
+    feedback.textContent = state.message;
+  } catch (error) {
+    feedback.textContent = error.message;
+    void refreshMaStatus();
+  } finally {
+    target.disabled = submit.disabled = false;
   }
 });
 let feishuPoll;
