@@ -277,11 +277,13 @@ async function connectWorkspace() {
     }
     acceptServer(result);
     connected = true;
-    $('.header-right .pill').textContent = '本机服务已连接';
+    $('#workspace-status').textContent = '本机服务已连接';
+    void refreshMaStatus();
     render();
   } catch (error) {
     connected = false;
-    $('.header-right .pill').textContent = '本机服务未连接';
+    $('#workspace-status').textContent = '本机服务未连接';
+    paintMaStatus(null);
     $('#content').innerHTML =
       empty('无法连接本机工作台', esc(error.message)) + button('重试连接', 'reconnect', '', true);
   }
@@ -507,9 +509,31 @@ function closeModal() {
   if (secret) secret.value = '';
   $('#modal').close();
 }
+function paintMaStatus(state) {
+  const status = $('#ma-status');
+  if (!status) return;
+  const verified = state?.configured && state?.connected === true;
+  status.className = `pill${verified ? ' green' : state?.configured ? ' amber' : ''}`;
+  status.textContent = !state
+    ? '方舟状态读取失败'
+    : verified
+      ? '方舟服务已连接'
+      : state.configured
+        ? '方舟已配置 · 待验证'
+        : '方舟未配置';
+  status.title = state?.message || '打开方舟配置查看详情';
+}
+async function refreshMaStatus() {
+  try {
+    paintMaStatus(await request('/ma-config'));
+  } catch {
+    paintMaStatus(null);
+  }
+}
 async function openMaConfig() {
   try {
     const state = await request('/ma-config');
+    paintMaStatus(state);
     modal(
       '方舟配置',
       `<p>${state.configured ? `已配置 · ${esc(state.source)}` : '尚未配置可用的 API Key'}</p>
@@ -530,21 +554,25 @@ document.addEventListener('submit', async (event) => {
   const keyInput = form.elements.apiKey;
   const submit = form.querySelector('[type="submit"]');
   submit.disabled = true;
+  $('#ma-status').textContent = '正在保存方舟配置…';
+  $('#ma-status').className = 'pill';
   try {
-    await request('/ma-config', 'PUT', { apiKey: keyInput.value });
+    const state = await request('/ma-config', 'PUT', { apiKey: keyInput.value });
+    paintMaStatus(state);
     keyInput.value = '';
     closeModal();
     toast('方舟 API Key 已保存，可继续员工的飞书接入');
   } catch (error) {
     keyInput.value = '';
     toast(error.message);
+    void refreshMaStatus();
   } finally {
     submit.disabled = false;
   }
 });
 let feishuPoll;
 let feishuDialogId;
-async function openFeishu(id, begin = false, confirmedNotCreated = false) {
+async function openFeishu(id, begin = false, confirmedNotCreated = false, upgrade = false) {
   clearTimeout(feishuPoll);
   feishuDialogId = id;
   modal(
@@ -555,7 +583,7 @@ async function openFeishu(id, begin = false, confirmedNotCreated = false) {
   );
   try {
     const state = await request(
-      `/employees/${encodeURIComponent(id)}/feishu`,
+      `/employees/${encodeURIComponent(id)}/feishu${upgrade ? '/upgrade' : ''}`,
       begin ? 'POST' : 'GET',
       begin ? { confirmedNotCreated } : undefined,
     );
@@ -573,6 +601,8 @@ async function openFeishu(id, begin = false, confirmedNotCreated = false) {
 function paintFeishu(id, state) {
   if (!$('#modal').open || feishuDialogId !== id || !$('#feishu-progress')) return;
   $('#feishu-progress').innerHTML = `<p role="status">${esc(state.message || state.status)}</p>
+    ${state.status === 'awaiting_permissions' ? button('补齐现有应用权限', 'upgrade-feishu', id, true) : ''}
+    ${state.appId && ['stopped', 'awaiting_ma', 'error'].includes(state.status) ? button('继续接入', 'resume-feishu', id, true) : ''}
     ${!state.appId && ['error', 'interrupted'].includes(state.status) ? `<p>若已创建应用，请保留现有应用并联系接入人员核对绑定。</p>${button('我确认尚未创建，重新生成二维码', 'retry-feishu', id, true)}` : ''}
     ${state.appId ? `<p>App ID：${esc(state.appId)}</p>` : ''}
     ${state.url ? `<canvas id="feishu-qr" aria-label="使用飞书扫描创建应用" role="img"></canvas><p><a href="${esc(state.url)}" target="_blank" rel="noopener noreferrer">${esc(state.url)}</a></p><small>请使用当前账号确认。链接失效时请先核查飞书应用创建结果。</small>` : ''}
@@ -594,7 +624,11 @@ function paintFeishu(id, state) {
       }),
     );
   }
-  if (!['error', 'interrupted', 'unbound', 'awaiting_ma'].includes(state.status))
+  if (
+    !['error', 'interrupted', 'unbound', 'awaiting_ma', 'awaiting_permissions', 'stopped'].includes(
+      state.status,
+    )
+  )
     feishuPoll = setTimeout(async () => {
       if (!$('#modal').open || !$('#feishu-progress') || feishuDialogId !== id) return;
       try {
@@ -1003,6 +1037,8 @@ document.addEventListener('click', async (event) => {
   if (action === 'reconnect') return connectWorkspace();
   if (action === 'ma-config') return openMaConfig();
   if (action === 'retry-feishu') return openFeishu(id, true, true);
+  if (action === 'upgrade-feishu') return openFeishu(id, true, false, true);
+  if (action === 'resume-feishu') return openFeishu(id, true);
   if (action === 'connect-feishu') return openFeishu(owner.id, true);
   if (action === 'view-feishu') return openFeishu(owner.id);
   if (action === 'new-task') return editDialog('task');
@@ -1419,7 +1455,10 @@ async function refreshTasks() {
 setInterval(() => {
   if (connected && !saving && route().module === 'tasks')
     refreshTasks().catch(() => {
-      $('.header-right .pill').textContent = '任务更新失败，请检查本机服务';
+      $('#workspace-status').textContent = '任务更新失败，请检查本机服务';
     });
 }, 2000);
+window.addEventListener('focus', () => {
+  if (connected && !$('#ma-config-form')) void refreshMaStatus();
+});
 connectWorkspace();
