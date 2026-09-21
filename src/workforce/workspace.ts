@@ -86,8 +86,9 @@ function validateConfiguration(employee: RecordData) {
       throw new DomainError('仅支持凭证引用，不接收明文密钥');
   }
 }
-function validateState(input: unknown, previous: RecordData) {
-  object(input, '工作台');
+function validateState(value: unknown, previous: RecordData) {
+  object(value, '工作台');
+  const input = normalizeGroups(structuredClone(value));
   const employees = records(input.employees, '数字员工');
   const employeeIds = new Set(employees.map((employee) => employee.id));
   for (const employee of employees) {
@@ -135,12 +136,50 @@ function validateState(input: unknown, previous: RecordData) {
     for (const group of records(project.groups, '项目群聊')) {
       text(group.name, '群聊名称');
       text(group.chatId, '群聊 ID');
-      if (!employeeIds.has(group.employeeId)) throw new DomainError('群聊关联的员工不存在');
       if (allChats.has(group.chatId)) throw new DomainError('群聊只能关联一个项目');
       allChats.add(group.chatId);
     }
   }
-  return { employees, projects, observations: [] };
+  const groups = records(input.groups, '群聊');
+  const chats = new Set();
+  for (const group of groups) {
+    text(group.name, '群聊名称');
+    text(group.chatId, '群聊 ID');
+    if (chats.has(group.chatId)) throw new DomainError('群聊 ID 已登记');
+    chats.add(group.chatId);
+    if (group.projectId && !projects.some((project) => project.id === group.projectId))
+      throw new DomainError('群聊关联的项目不存在');
+    if (
+      !Array.isArray(group.employeeIds) ||
+      new Set(group.employeeIds).size !== group.employeeIds.length ||
+      group.employeeIds.some((id: string) => !employeeIds.has(id))
+    )
+      throw new DomainError('群聊关联的员工无效或重复');
+  }
+  return { employees, projects, groups, observations: [] };
+}
+
+export function normalizeGroups(state: RecordData): RecordData {
+  if (!Array.isArray(state.projects)) return state;
+  records(state.projects, '项目');
+  if (state.groups === undefined)
+    for (const project of state.projects) records(project.groups || [], '项目群聊');
+  if (state.groups === undefined)
+    state.groups = state.projects.flatMap((project: RecordData) =>
+      (project.groups || []).map((group: RecordData) => ({
+        ...group,
+        id: `${project.id}:${group.id}`,
+        projectId: project.id,
+        employeeIds: group.employeeIds || (group.employeeId ? [group.employeeId] : []),
+        source: 'project',
+      })),
+    );
+  if (Array.isArray(state.groups))
+    for (const project of state.projects)
+      project.groups = state.groups
+        .filter((group: RecordData) => group?.projectId === project.id)
+        .map((group: RecordData) => ({ ...group, employeeId: group.employeeIds?.[0] || '' }));
+  return state;
 }
 
 export class LocalWorkspace {
@@ -169,7 +208,7 @@ export class LocalWorkspace {
       initialized: !!row,
       mode: 'local',
       state: {
-        ...(row ? JSON.parse(row.payload) : { employees: [], projects: [], observations: [] }),
+        ...normalizeGroups(row ? JSON.parse(row.payload) : { employees: [], projects: [], observations: [] }),
         tasks: this.tasks(),
       },
     };

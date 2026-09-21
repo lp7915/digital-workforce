@@ -210,3 +210,36 @@ test('后端拒绝畸形配置、明文凭证与已发布版本篡改', () => {
     workspace.close();
   }
 });
+
+test('群聊从项目迁移，可独立登记并关联多位员工，项目视图保持一致', () => {
+  const workspace = new LocalWorkspace(':memory:');
+  try {
+    workspace.save(state(), 0);
+    const data = workspace.read().state;
+    assert.equal(data.groups[0].projectId, 'p');
+    assert.deepEqual(data.groups[0].employeeIds, ['e']);
+    data.employees.push({ ...structuredClone(data.employees[0]), id: 'e2', name: '创意' });
+    data.groups.push({
+      id: 'independent',
+      name: '独立群',
+      chatId: 'oc_independent',
+      projectId: '',
+      employeeIds: [],
+    });
+    data.groups[0].employeeIds.push('e2');
+    workspace.save(data, 1);
+    assert.equal(workspace.read().state.groups.length, 2);
+    assert.deepEqual(workspace.read().state.projects[0].groups[0].employeeIds, ['e', 'e2']);
+    data.groups[0].projectId = '';
+    workspace.save(data, 2);
+    assert.equal(workspace.read().state.projects[0].groups.length, 0);
+    assert.equal(workspace.read().state.groups.length, 2);
+    data.groups[1].chatId = 'oc_test';
+    assert.throws(() => workspace.save(data, 3), /已登记/);
+    data.groups[1].chatId = 'oc_independent';
+    data.groups[1].employeeIds = ['missing'];
+    assert.throws(() => workspace.save(data, 3), /员工/);
+  } finally {
+    workspace.close();
+  }
+});
