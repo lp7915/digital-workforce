@@ -103,6 +103,36 @@ export class FeishuGroups {
     if (!chat) throw new DomainError('当前用户不是该群的群主或管理员，或群已解散。', 403);
     return this.persist(chat);
   }
+  async members(groupId: string, pageToken = '') {
+    if (pageToken.length > 4096) throw new DomainError('分页参数无效');
+    const group = this.workspace.read().state.groups.find((g: any) => g.id === groupId);
+    if (!group) throw new DomainError('群聊不存在', 404);
+    const user = await this.user();
+    if (!(await this.detail(group.chatId, user.openId)))
+      throw new DomainError('当前用户已无此群管理权限或群已解散。', 403);
+    const page = await this.call([
+      'chat.members',
+      'get',
+      '--chat-id',
+      group.chatId,
+      '--member-id-type',
+      'open_id',
+      '--page-size',
+      '50',
+      '--check-security-conf',
+      ...(pageToken ? ['--page-token', pageToken] : []),
+    ]);
+    return {
+      members: (page.items || []).map((member: any) => ({
+        id: member.member_id,
+        name: member.name || '未命名成员',
+      })),
+      hasMore: Boolean(page.has_more),
+      pageToken: page.page_token || '',
+      total: page.member_total,
+      limited: Boolean(page.trigger_security_conf_limit),
+    };
+  }
   private persist(chat: { chatId: string; name: string }, employeeId?: string) {
     const latest = this.workspace.read();
     let group = latest.state.groups.find((g: any) => g.chatId === chat.chatId);

@@ -3,6 +3,45 @@ import assert from 'node:assert/strict';
 import { FeishuGroups } from '../src/workforce/feishu-groups.ts';
 import { LocalWorkspace } from '../src/workforce/workspace.ts';
 
+test('成员查询只返回展示字段并保留分页，撤销管理权限后拒绝读取', async () => {
+  const workspace = new LocalWorkspace(':memory:');
+  workspace.save(
+    {
+      employees: [],
+      projects: [],
+      groups: [{ id: 'g', name: '群', chatId: 'oc_test', projectId: '', employeeIds: [], source: 'feishu' }],
+    },
+    0,
+  );
+  let allowed = true;
+  let reads = 0;
+  const service = new FeishuGroups(workspace, {} as any, async (args) => {
+    if (args[0] === 'auth') return { identities: { user: { verified: true, openId: 'ou_me' } } };
+    if (args[1] === 'chats')
+      return { owner_id: allowed ? 'ou_me' : 'ou_other', chat_mode: 'group', chat_status: 'normal' };
+    reads++;
+    assert.ok(args.includes('--check-security-conf'));
+    assert.ok(args.includes('cursor'));
+    return {
+      items: [{ member_id: 'ou_member', name: '成员', tenant_key: 'private' }],
+      has_more: true,
+      page_token: 'next',
+      member_total: 3,
+    };
+  });
+  try {
+    const page = await service.members('g', 'cursor');
+    assert.deepEqual(page.members, [{ id: 'ou_member', name: '成员' }]);
+    assert.equal(page.pageToken, 'next');
+    allowed = false;
+    await assert.rejects(service.members('g'), /管理权限/);
+    assert.equal(reads, 1);
+    await assert.rejects(service.members('missing'), /不存在/);
+  } finally {
+    workspace.close();
+  }
+});
+
 function fixture() {
   const workspace = new LocalWorkspace(':memory:');
   workspace.save(

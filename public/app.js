@@ -703,6 +703,12 @@ function render() {
     $('#content').innerHTML = employee
       ? employeeDetail(employee, employeeTabs[section] ? section : 'basic')
       : empty('员工不存在', '请从数字员工列表重新选择。');
+  } else if (module === 'groups' && id) {
+    const group = data.groups.find((item) => item.id === id);
+    $('#content').innerHTML = group
+      ? groupDetail(group, ['info', 'employees', 'members'].includes(section) ? section : 'info')
+      : empty('群聊不存在', '请从群聊列表重新选择。');
+    if (group && section === 'members') void loadGroupMembers(group.id);
   } else if (module === 'projects' && id) {
     const project = data.projects.find((item) => item.id === id);
     $('#content').innerHTML = project
@@ -714,12 +720,6 @@ function render() {
   }
   applyFilters();
 }
-let feishuGroupPage = '';
-let feishuGroupsFound = [];
-let feishuScanned = 0;
-let feishuFailed = 0;
-let groupLoadGeneration = 0;
-async function browseFeishuGroups(more = false) {
 let maSkillEmployee = '',
   maSkillPage = '';
 let maSkills = [];
@@ -754,6 +754,12 @@ document.addEventListener('input', (event) => {
     card.hidden = !card.dataset.maSkillSearch.includes(query);
   });
 });
+let feishuGroupPage = '';
+let feishuGroupsFound = [];
+let feishuScanned = 0;
+let feishuFailed = 0;
+let groupLoadGeneration = 0;
+async function browseFeishuGroups(more = false) {
   const generation = ++groupLoadGeneration;
   if (!more) {
     feishuGroupPage = '';
@@ -784,6 +790,57 @@ document.addEventListener('input', (event) => {
       );
   }
 }
+function groupDetail(group, section) {
+  let content = '';
+  if (section === 'info')
+    content = panel(
+      '群信息',
+      '查看群聊标识与项目关联。',
+      `<dl class="group-info"><dt>群聊名称</dt><dd>${esc(group.name)}</dd><dt>群聊 ID</dt><dd>${esc(group.chatId)}</dd><dt>来源</dt><dd>${group.source === 'feishu' ? '飞书群聊' : '本地登记'}</dd><dt>关联项目</dt><dd>${group.projectId ? `<a href="#projects/${esc(group.projectId)}">${esc(projectName(group.projectId))} →</a>` : '未关联项目'}</dd><dt>数字员工</dt><dd>${group.employeeIds.length} 位</dd></dl><div class="actions">${button('编辑群信息', 'manage-group', group.id)}</div>`,
+    );
+  if (section === 'employees') {
+    const employees = group.employeeIds.map((id) => data.employees.find((e) => e.id === id)).filter(Boolean);
+    content = `<div class="section-toolbar"><p class="muted">已关联 ${employees.length} 位数字员工</p>${button('＋ 添加数字员工', 'assign-group', group.id, true)}</div><div class="grid compact-cards">${employees.map((e) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◈</span>${badge(e.enabled ? '已启用' : '已停用', e.enabled ? 'green' : '')}</div><h3><a href="#employees/${esc(e.id)}">${esc(e.name)}</a></h3><p class="card-description">${esc(e.description || '暂无描述')}</p><div class="card-footer"><span>群数字员工</span><a href="#employees/${esc(e.id)}">查看详情 →</a></div></article>`).join('')}</div>${employees.length ? '' : empty('尚未添加数字员工', '可一次选择多位已连接飞书的员工。')}`;
+  }
+  if (section === 'members')
+    content = `<div class="section-toolbar"><p class="muted">飞书群成员（人员），数字员工请查看对应标签。</p>${button('刷新成员', 'refresh-group-members', group.id)}</div><div id="group-members-content" aria-live="polite"><p class="muted">正在读取群成员…</p></div>`;
+  return (
+    `<a class="back" href="#groups">← 群聊</a>` +
+    head(group.name, '管理群聊信息、数字员工与群成员') +
+    tabs('groups', group.id, { info: '群信息', employees: '群数字员工', members: '群成员' }, section) +
+    content
+  );
+}
+let memberLoadGeneration = 0;
+let groupMemberRows = [];
+let groupMemberPage = '';
+async function loadGroupMembers(id, more = false) {
+  const generation = ++memberLoadGeneration;
+  const container = $('#group-members-content');
+  if (!container) return;
+  const valid = () =>
+    generation === memberLoadGeneration && container === $('#group-members-content') && route().id === id;
+  if (!more) {
+    groupMemberRows = [];
+    groupMemberPage = '';
+  }
+  container.querySelectorAll('button').forEach((b) => {
+    b.disabled = true;
+  });
+  try {
+    const result = await request(
+      `/groups/${encodeURIComponent(id)}/members?pageToken=${encodeURIComponent(groupMemberPage)}`,
+    );
+    if (!valid()) return;
+    for (const member of result.members)
+      if (!groupMemberRows.some((m) => m.id === member.id)) groupMemberRows.push(member);
+    groupMemberPage = result.pageToken;
+    container.innerHTML = `<p class="muted">已加载 ${groupMemberRows.length} 位成员${Number.isInteger(result.total) ? ` · 共 ${result.total} 位` : ''}</p>${result.limited ? '<p class="muted">受飞书群安全设置限制，仅展示允许查看的成员。</p>' : ''}<div class="grid compact-cards">${groupMemberRows.map((m) => `<article class="entity-card"><span class="member-avatar">${esc(m.name.slice(0, 1))}</span><h3>${esc(m.name)}</h3><p class="card-description">${esc(m.id)}</p></article>`).join('')}</div>${!groupMemberRows.length ? empty('暂无可显示的群成员', '飞书当前未返回可查看的人员。') : ''}${result.hasMore && result.pageToken ? `<div class="actions form-actions">${button('加载更多成员', 'more-group-members', id)}</div>` : ''}`;
+  } catch (error) {
+    if (valid())
+      container.innerHTML = `<p class="error">${esc(error.message)}</p>${button('重新加载成员', 'refresh-group-members', id)}`;
+  }
+}
 function groupsOverview() {
   return (
     head(
@@ -791,7 +848,7 @@ function groupsOverview() {
       '管理飞书群聊及服务员工，按项目组织协作。',
       button('从飞书选择', 'browse-feishu-groups', '', true),
     ) +
-    `<p class="demo-note">从飞书拉取你担任群主或管理员的群聊，添加数字员工后即可在群中 @ 机器人使用。</p><div class="toolbar"><span class="muted">共 ${data.groups.length} 个群聊</span><input id="search" class="search" aria-label="搜索群聊" placeholder="搜索群聊、项目或员工…" value="${esc(search)}" /></div><div class="grid compact-cards">${data.groups.map((group) => `<article class="entity-card" data-search="${esc([group.name, group.chatId, projectName(group.projectId), ...group.employeeIds.map(employeeName)].join(' '))}"><div class="card-top"><span class="entity-icon">☏</span>${badge(group.source === 'feishu' ? '飞书群聊' : '本地登记')}</div><h3>${esc(group.name)}</h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">${group.projectId ? `<a href="#projects/${esc(group.projectId)}/groups">${esc(projectName(group.projectId))}</a>` : '未关联项目'}</p><p>服务员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('＋ 添加数字员工', 'assign-group', group.id, true)}${button('编辑群聊', 'manage-group', group.id)}</div></article>`).join('')}</div><div id="filter-empty" hidden>${empty('没有匹配群聊', '登记群聊或调整搜索关键词。')}</div>`
+    `<p class="demo-note">从飞书拉取你担任群主或管理员的群聊，添加数字员工后即可在群中 @ 机器人使用。</p><div class="toolbar"><span class="muted">共 ${data.groups.length} 个群聊</span><input id="search" class="search" aria-label="搜索群聊" placeholder="搜索群聊、项目或员工…" value="${esc(search)}" /></div><div class="grid compact-cards">${data.groups.map((group) => `<article class="entity-card" data-search="${esc([group.name, group.chatId, projectName(group.projectId), ...group.employeeIds.map(employeeName)].join(' '))}"><div class="card-top"><span class="entity-icon">☏</span>${badge(group.source === 'feishu' ? '飞书群聊' : '本地登记')}</div><h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">${group.projectId ? `<a href="#projects/${esc(group.projectId)}/groups">${esc(projectName(group.projectId))}</a>` : '未关联项目'}</p><p>服务员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('＋ 添加数字员工', 'assign-group', group.id, true)}${button('编辑群聊', 'manage-group', group.id)}</div><div class="card-footer"><span>${group.employeeIds.length} 位数字员工</span><a href="#groups/${esc(group.id)}">查看详情 →</a></div></article>`).join('')}</div><div id="filter-empty" hidden>${empty('没有匹配群聊', '登记群聊或调整搜索关键词。')}</div>`
   );
 }
 function overview(module) {
@@ -1211,6 +1268,8 @@ document.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'new-group') return editDialog('group');
+  if (action === 'refresh-group-members') return loadGroupMembers(id);
+  if (action === 'more-group-members') return loadGroupMembers(id, true);
   if (action === 'assign-group') {
     target.disabled = true;
     try {

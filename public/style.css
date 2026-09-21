@@ -965,6 +965,19 @@ code {
   max-height: 360px;
   overflow-y: auto;
 }
+.group-info {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 18px 24px;
+  margin: 24px 0;
+}
+.group-info dt {
+  color: var(--muted);
+}
+.group-info dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .employee-picker legend {
   font-size: 13px;
   font-weight: 500;

@@ -113,6 +113,15 @@ export async function createWeb(
             return json(res, await options.feishuGroups.import(input.chatId));
           }
         }
+        const groupMembers = path.match(/^\/api\/workspace\/groups\/([^/]+)\/members$/);
+        if (groupMembers && options.feishuGroups && method === 'GET')
+          return json(
+            res,
+            await options.feishuGroups.members(
+              decodeURIComponent(groupMembers[1]),
+              url.searchParams.get('pageToken') || '',
+            ),
+          );
         if (path === '/api/workspace/feishu-groups/employees' && options.feishuGroups && method === 'GET')
           return json(res, { employees: options.feishuGroups.employees() });
         if (path === '/api/workspace/feishu-groups/employees' && options.feishuGroups && method === 'POST') {
