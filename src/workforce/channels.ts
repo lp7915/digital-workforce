@@ -103,14 +103,14 @@ export class WorkspaceChannels {
       lastRepliedAt: b.lastRepliedAt,
     };
   }
-  begin(id: string) {
+  begin(id: string, confirmedNotCreated = false) {
     const employee = this.employee(id);
     if (this.closed) throw new DomainError('服务正在关闭', 503);
     if (this.active.has(id) || this.running.has(id)) return this.view(id);
     let b = this.get(id);
     if (b?.pendingResource)
       throw new DomainError(`上次创建 ${b.pendingResource} 结果未确认，请先核查 MA 资源，避免重复创建`, 409);
-    if (b && !b.appId && ['interrupted', 'error'].includes(b.status))
+    if (b && !b.appId && ['interrupted', 'error'].includes(b.status) && confirmedNotCreated !== true)
       throw new DomainError('上次应用创建结果未确认，请先在飞书开放平台核查；暂不自动重复创建', 409);
     b ||= { employeeId: id, status: 'creating' };
     b.status = b.appId ? 'provisioning' : 'creating';

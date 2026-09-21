@@ -544,7 +544,7 @@ document.addEventListener('submit', async (event) => {
 });
 let feishuPoll;
 let feishuDialogId;
-async function openFeishu(id, begin = false) {
+async function openFeishu(id, begin = false, confirmedNotCreated = false) {
   clearTimeout(feishuPoll);
   feishuDialogId = id;
   modal(
@@ -557,16 +557,23 @@ async function openFeishu(id, begin = false) {
     const state = await request(
       `/employees/${encodeURIComponent(id)}/feishu`,
       begin ? 'POST' : 'GET',
-      begin ? {} : undefined,
+      begin ? { confirmedNotCreated } : undefined,
     );
     paintFeishu(id, state);
   } catch (error) {
-    if ($('#feishu-progress')) $('#feishu-progress').textContent = error.message;
+    if ($('#feishu-progress')) {
+      try {
+        paintFeishu(id, await request(`/employees/${encodeURIComponent(id)}/feishu`));
+      } catch {
+        $('#feishu-progress').textContent = error.message;
+      }
+    }
   }
 }
 function paintFeishu(id, state) {
   if (!$('#modal').open || feishuDialogId !== id || !$('#feishu-progress')) return;
   $('#feishu-progress').innerHTML = `<p role="status">${esc(state.message || state.status)}</p>
+    ${!state.appId && ['error', 'interrupted'].includes(state.status) ? `<p>若已创建应用，请保留现有应用并联系接入人员核对绑定。</p>${button('我确认尚未创建，重新生成二维码', 'retry-feishu', id, true)}` : ''}
     ${state.appId ? `<p>App ID：${esc(state.appId)}</p>` : ''}
     ${state.url ? `<canvas id="feishu-qr" aria-label="使用飞书扫描创建应用" role="img"></canvas><p><a href="${esc(state.url)}" target="_blank" rel="noopener noreferrer">${esc(state.url)}</a></p><small>请使用当前账号确认。链接失效时请先核查飞书应用创建结果。</small>` : ''}
     ${state.lastReceivedAt ? `<p>最近收到消息：${esc(new Date(state.lastReceivedAt).toLocaleString())}</p>` : ''}
@@ -988,6 +995,7 @@ document.addEventListener('click', async (event) => {
   const { owner } = context();
   if (action === 'reconnect') return connectWorkspace();
   if (action === 'ma-config') return openMaConfig();
+  if (action === 'retry-feishu') return openFeishu(id, true, true);
   if (action === 'connect-feishu') return openFeishu(owner.id, true);
   if (action === 'view-feishu') return openFeishu(owner.id);
   if (action === 'new-task') return editDialog('task');

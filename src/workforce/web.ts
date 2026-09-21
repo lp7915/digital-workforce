@@ -92,8 +92,12 @@ export async function createWeb(
         if (channel && options.channels) {
           if (method === 'GET') return json(res, options.channels.view(decodeURIComponent(channel[1])));
           if (method === 'POST') {
-            await body(req);
-            return json(res, options.channels.begin(decodeURIComponent(channel[1])), 202);
+            const input = await body(req);
+            return json(
+              res,
+              options.channels.begin(decodeURIComponent(channel[1]), input?.confirmedNotCreated === true),
+              202,
+            );
           }
         }
         if (path === '/api/workspace' && method === 'GET') return json(res, workspace.read());

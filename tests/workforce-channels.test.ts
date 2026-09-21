@@ -123,3 +123,25 @@ test('未确认创建在重启后不自动重复申请，状态隔离于客户�
     w.close();
   }
 });
+test('创建中断后，仅明确确认未创建才重新发起', async () => {
+  const w = workspace();
+  let count = 0;
+  const channels = new WorkspaceChannels(w, {
+    dataDir: '/tmp',
+    register: async () => {
+      count++;
+      throw new Error('expired');
+    },
+  });
+  try {
+    channels.begin('e');
+    await until(() => channels.view('e').status === 'error');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.throws(() => channels.begin('e'), /核查/);
+    channels.begin('e', true);
+    await until(() => count === 2);
+  } finally {
+    await channels.stop();
+    w.close();
+  }
+});
