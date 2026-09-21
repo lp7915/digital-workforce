@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync } from 'node:fs';
+import { MaConfiguration } from './ma-config.ts';
 import { resolve } from 'node:path';
 import { registerApp } from '@larksuiteoapi/node-sdk';
 import QRCode from 'qrcode-terminal/vendor/QRCode/index.js';
@@ -198,16 +199,9 @@ export class WorkspaceChannels {
     }
   }
   private ark() {
-    let key = process.env.WORKFORCE_MA_API_KEY;
-    if (process.env.WORKFORCE_MA_CONFIG) {
-      const path = resolve(process.env.WORKFORCE_MA_CONFIG);
-      if (statSync(path).mode & 0o077) throw new MissingMaConfig('MA 配置文件权限须设为 600');
-      key = JSON.parse(readFileSync(path, 'utf8')).apiKey;
-    }
+    const key = new MaConfiguration(this.options.dataDir).apiKey();
     if (!key?.trim())
-      throw new MissingMaConfig(
-        '应用已绑定；请配置 WORKFORCE_MA_API_KEY 或 WORKFORCE_MA_CONFIG，然后继续接入',
-      );
+      throw new MissingMaConfig('应用已绑定；请在页面右上角「方舟配置」中保存 API Key，然后继续接入');
     return new ArkClient(key.trim(), 'https://ark.cn-beijing.volces.com/api/v3');
   }
   private async provision(b: Binding, checkpoint: () => void) {

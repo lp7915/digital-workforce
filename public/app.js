@@ -503,8 +503,45 @@ function modal(title, body) {
   $('#modal').showModal();
 }
 function closeModal() {
+  const secret = $('#ma-api-key');
+  if (secret) secret.value = '';
   $('#modal').close();
 }
+async function openMaConfig() {
+  try {
+    const state = await request('/ma-config');
+    modal(
+      '方舟配置',
+      `<p>${state.configured ? `已配置 · ${esc(state.source)}` : '尚未配置可用的 API Key'}</p>
+      <p class="muted">用于数字员工调用方舟 MA。密钥仅保存到本机后端，不回显、不写入浏览器存储。页面配置优先于环境变量。</p>
+      <form id="ma-config-form" autocomplete="off"><label for="ma-api-key">方舟 API Key</label>
+      <input id="ma-api-key" type="password" name="apiKey" autocomplete="new-password" maxlength="4096" required placeholder="${state.configured ? '输入新密钥以替换；留空不修改' : '输入具备 MA 权限的 API Key'}" />
+      <p class="muted">${esc(state.message)} 已运行的 Channel 更换密钥后需重启本机服务；待接入员工可直接继续接入。</p>
+      <div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">保存配置</button></div></form>`,
+    );
+  } catch (error) {
+    toast(error.message);
+  }
+}
+document.addEventListener('submit', async (event) => {
+  if (event.target.id !== 'ma-config-form') return;
+  event.preventDefault();
+  const form = event.target;
+  const keyInput = form.elements.apiKey;
+  const submit = form.querySelector('[type="submit"]');
+  submit.disabled = true;
+  try {
+    await request('/ma-config', 'PUT', { apiKey: keyInput.value });
+    keyInput.value = '';
+    closeModal();
+    toast('方舟 API Key 已保存，可继续员工的飞书接入');
+  } catch (error) {
+    keyInput.value = '';
+    toast(error.message);
+  } finally {
+    submit.disabled = false;
+  }
+});
 let feishuPoll;
 let feishuDialogId;
 async function openFeishu(id, begin = false) {
@@ -950,6 +987,7 @@ document.addEventListener('click', async (event) => {
   }
   const { owner } = context();
   if (action === 'reconnect') return connectWorkspace();
+  if (action === 'ma-config') return openMaConfig();
   if (action === 'connect-feishu') return openFeishu(owner.id, true);
   if (action === 'view-feishu') return openFeishu(owner.id);
   if (action === 'new-task') return editDialog('task');
@@ -1082,6 +1120,7 @@ document.addEventListener('click', async (event) => {
   }
 });
 document.addEventListener('submit', async (event) => {
+  if (event.target.id === 'ma-config-form') return;
   event.preventDefault();
   const form = event.target;
   const values = Object.fromEntries(new FormData(form));

@@ -6,6 +6,7 @@ import { Workforce, DomainError, type Principal, type Job, type Memory, type Tur
 import { LocalLab } from './lab.ts';
 import { LocalWorkspace } from './workspace.ts';
 import type { WorkspaceChannels } from './channels.ts';
+import type { MaConfiguration } from './ma-config.ts';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 type Access = { id: string; principal: Principal; active: boolean; expiresAt?: number };
@@ -56,6 +57,7 @@ export async function createWeb(
     extractorMode?: string;
     workspace?: LocalWorkspace;
     channels?: WorkspaceChannels;
+    maConfig?: MaConfiguration;
   },
 ) {
   const lab = new LocalLab(w);
@@ -79,6 +81,13 @@ export async function createWeb(
       if (options.workspace && path.startsWith('/api/workspace')) {
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DomainError('拒绝跨站请求', 403);
         const workspace = options.workspace;
+        if (path === '/api/workspace/ma-config' && options.maConfig) {
+          if (method === 'GET') return json(res, options.maConfig.status());
+          if (method === 'PUT') {
+            const input = await body(req, 8192);
+            return json(res, options.maConfig.save(input?.apiKey));
+          }
+        }
         const channel = path.match(/^\/api\/workspace\/employees\/([^/]+)\/feishu$/);
         if (channel && options.channels) {
           if (method === 'GET') return json(res, options.channels.view(decodeURIComponent(channel[1])));

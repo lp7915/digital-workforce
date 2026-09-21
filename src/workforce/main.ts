@@ -8,6 +8,7 @@ import { ArkClient } from '../ark.ts';
 import { MaExtractor } from './extractor.ts';
 import { LocalWorkspace } from './workspace.ts';
 import { WorkspaceChannels } from './channels.ts';
+import { MaConfiguration } from './ma-config.ts';
 
 const dataDir = resolve(process.env.WORKFORCE_DATA_DIR || 'data');
 mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -45,7 +46,13 @@ if (process.env.WORKFORCE_EXTRACTOR_CONFIG) {
 }
 const port = Number(process.env.WORKFORCE_PORT || '8790');
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('WORKFORCE_PORT 无效');
-const { server, url } = await createWeb(w, { port, extractorMode, workspace, channels });
+const { server, url } = await createWeb(w, {
+  port,
+  extractorMode,
+  workspace,
+  channels,
+  maConfig: new MaConfiguration(dataDir),
+});
 channels.resume();
 const taskInterval = setInterval(() => {
   try {
