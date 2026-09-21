@@ -51,3 +51,11 @@
 **Status**: Complete
 
 完整 1807 项测试、构建与格式检查通过。本机服务已重启，实际 GET /api/workspace/ma-skills 返回三个真实 ADA 技能及本地 ada 标签，hasMore=false。
+
+## Stage 8: 项目员工与群聊职责
+**Goal**: 增加项目员工配置，共用群聊关系，按群归属加载记忆。
+**Success Criteria**: 两个群聊入口一致；入群筛选项目员工；既有记忆范围不变。
+**Tests**: 项目员工校验、权限、群事件幂等、Session 范围回归与界面验证。
+**Status**: Complete
+
+1826 项完整回归通过。页面验证 ADA 加入测试项目并保存职责与只读权限，全局筛选入口可见。群事件处理及 SDK dispatcher 兼容测试通过；已有应用需在飞书升级事件订阅，真实进退群事件尚未现场验收。

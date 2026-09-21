@@ -22,6 +22,9 @@ import { LarkChannelAdapter } from '../lark-channel.ts';
 import { startChannelAfterRecovery } from '../channel-startup.ts';
 import { DomainError } from './domain.ts';
 import type { LocalWorkspace } from './workspace.ts';
+import { createLarkChannel } from '@larksuite/channel';
+import { registerGroupEvents } from './group-event-adapter.ts';
+import { syncBotGroup } from './group-events.ts';
 
 type Binding = {
   employeeId: string;
@@ -127,7 +130,15 @@ export class WorkspaceChannels {
               tenant: resolveLarkBotScopes(DEFAULT_LARK_DOMAINS),
               user: EMPLOYEE_CALENDAR_USER_SCOPES,
             },
-            events: { items: { tenant: ['im.message.receive_v1'] } },
+            events: {
+              items: {
+                tenant: [
+                  'im.message.receive_v1',
+                  'im.chat.member.bot.added_v1',
+                  'im.chat.member.bot.deleted_v1',
+                ],
+              },
+            },
           },
           onQRCodeReady: (info) => {
             if (this.closed) return;
@@ -277,7 +288,15 @@ export class WorkspaceChannels {
               tenant: resolveLarkBotScopes(DEFAULT_LARK_DOMAINS),
               user: EMPLOYEE_CALENDAR_USER_SCOPES,
             },
-            events: { items: { tenant: ['im.message.receive_v1'] } },
+            events: {
+              items: {
+                tenant: [
+                  'im.message.receive_v1',
+                  'im.chat.member.bot.added_v1',
+                  'im.chat.member.bot.deleted_v1',
+                ],
+              },
+            },
           },
           onQRCodeReady: (info) => {
             if (this.closed) return;
@@ -442,7 +461,27 @@ export class WorkspaceChannels {
     const store = new GatewayStore(path);
     chmodSync(path, 0o600);
     store.acquireRuntimeLock();
+    const transport = createLarkChannel({
+      appId: b.appId!,
+      appSecret: b.appSecret!,
+      transport: 'websocket',
+      includeRawEvent: true,
+      source: 'arkagent',
+      handshakeTimeoutMs: 30000,
+      httpTimeoutMs: 30000,
+      keepalive: { enabled: true },
+      policy: { dmMode: 'open', requireMention: false, respondToMentionAll: false },
+      safety: { chatQueue: { enabled: false }, staleMessageWindowMs: 300000 },
+    });
+    registerGroupEvents(transport, b.appId!, (event) => {
+      try {
+        syncBotGroup(this.workspace, b.employeeId, event);
+      } catch (error) {
+        console.error('同步机器人群关系失败：', error);
+      }
+    });
     const channel = new LarkChannelAdapter({
+      channel: transport,
       appId: b.appId!,
       appSecret: b.appSecret!,
       onSent: (message, id) => {

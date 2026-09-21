@@ -227,6 +227,8 @@ test('群聊从项目迁移，可独立登记并关联多位员工，项目视�
       employeeIds: [],
     });
     data.groups[0].employeeIds.push('e2');
+    assert.throws(() => workspace.save(data, 1), /项目名单/);
+    data.projects[0].employees.push({ id: 'e2', role: '内容创意', permission: 'read' });
     workspace.save(data, 1);
     assert.equal(workspace.read().state.groups.length, 2);
     assert.deepEqual(workspace.read().state.projects[0].groups[0].employeeIds, ['e', 'e2']);

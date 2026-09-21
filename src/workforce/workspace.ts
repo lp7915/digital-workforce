@@ -145,6 +145,17 @@ function validateState(value: unknown, previous: RecordData, memoryWrite = false
   const allChats = new Set();
   for (const project of projects) {
     text(project.name, '项目名称');
+    for (const assignment of records(project.employees, '项目数字员工')) {
+      if (!employeeIds.has(assignment.id)) throw new DomainError('项目数字员工不存在');
+      text(assignment.role, '项目职责', 2000, true);
+      if (!['read', 'write'].includes(assignment.permission)) throw new DomainError('员工记忆权限无效');
+    }
+    if (
+      project.groups.some((g: RecordData) =>
+        g.employeeIds.some((id: string) => !project.employees.some((e: RecordData) => e.id === id)),
+      )
+    )
+      throw new DomainError('群内数字员工须保留在项目名单中，请先移出群聊或解除项目关联');
     validateMemories(project);
     const members = records(project.members, '项目成员');
     if (!members.some((member) => member.permission === 'manage'))
@@ -203,6 +214,10 @@ export function normalizeGroups(state: RecordData): RecordData {
       project.groups = state.groups
         .filter((group: RecordData) => group?.projectId === project.id)
         .map((group: RecordData) => ({ ...group, employeeId: group.employeeIds?.[0] || '' }));
+  for (const project of state.projects)
+    project.employees ??= [
+      ...new Set<string>((project.groups || []).flatMap((g: RecordData) => g.employeeIds || [])),
+    ].map((id) => ({ id, role: '', permission: 'write' }));
   return state;
 }
 

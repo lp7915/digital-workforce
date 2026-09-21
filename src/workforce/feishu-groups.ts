@@ -143,9 +143,17 @@ export class FeishuGroups {
     group.name = chat.name;
     group.source = 'feishu';
     if (employeeId && !group.employeeIds.includes(employeeId)) group.employeeIds.push(employeeId);
+    const project = latest.state.projects.find((p: any) => p.id === group.projectId);
+    if (employeeId && project && !project.employees.some((e: any) => e.id === employeeId))
+      project.employees.push({ id: employeeId, role: '', permission: 'read' });
     return this.workspace.save(latest.state, latest.revision);
   }
   async add(chatId: string, employeeId: string) {
+    const state = this.workspace.read().state;
+    const group = state.groups.find((g: any) => g.chatId === chatId);
+    const project = state.projects.find((p: any) => p.id === group?.projectId);
+    if (project && !project.employees.some((e: any) => e.id === employeeId))
+      throw new DomainError('请先将数字员工加入该群所属项目');
     const employee = this.workspace.read().state.employees.find((e: any) => e.id === employeeId);
     if (!employee?.enabled) throw new DomainError('请选择已启用的数字员工');
     const binding = this.channels.view(employeeId);
