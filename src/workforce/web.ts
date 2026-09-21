@@ -86,7 +86,7 @@ export async function createWeb(
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DomainError('拒绝跨站请求', 403);
         const workspace = options.workspace;
         if (path === '/api/workspace/ma-skills' && options.maConfig && method === 'GET')
-          return json(res, await new MaSkills(options.maConfig).list(url.searchParams.get('page') || ''));
+          return json(res, await new MaSkills(options.maConfig).list());
         const skillBinding = path.match(/^\/api\/workspace\/employees\/([^/]+)\/skills$/);
         if (skillBinding && options.maConfig && method === 'POST') {
           const input = await body(req);

@@ -720,27 +720,22 @@ function render() {
   }
   applyFilters();
 }
-let maSkillEmployee = '',
-  maSkillPage = '';
+let maSkillEmployee = '';
 let maSkills = [];
 let maSkillGeneration = 0;
-async function browseMaSkills(employeeId, more = false) {
+async function browseMaSkills(employeeId) {
   const generation = ++maSkillGeneration;
-  if (!more) {
-    maSkillEmployee = employeeId;
-    maSkillPage = '';
-    maSkills = [];
-  }
+  maSkillEmployee = employeeId;
+  maSkills = [];
   modal('从 MA 添加技能', '<p>正在通过方舟 APIKey 读取 MA 技能…</p>');
   try {
-    const result = await request('/ma-skills?page=' + encodeURIComponent(maSkillPage));
+    const result = await request('/ma-skills');
     if (generation !== maSkillGeneration || !$('#modal').open) return;
-    maSkillPage = result.nextPage;
     for (const skill of result.skills) if (!maSkills.some((s) => s.id === skill.id)) maSkills.push(skill);
     const bound = data.employees.find((e) => e.id === employeeId)?.skills || [];
     modal(
       '从 MA 添加技能',
-      `<p class="muted">已加载 ${maSkills.length} 项真实技能 · 同名技能以 ID 区分</p><input id="ma-skill-search" class="search" placeholder="搜索名称、描述或标签（如 ada）" aria-label="搜索 MA 技能" /><div class="grid compact-cards">${maSkills.map((s) => `<article class="entity-card" data-ma-skill-search="${esc((s.name + ' ' + s.description + ' ' + (s.tags || []).join(' ')).toLowerCase())}"><h3>${esc(s.name)}</h3><p class="card-description">${esc(s.description)}</p><p class="muted">${esc(s.id)} · v${esc(s.version)} ${esc((s.tags || []).join(' · '))}</p>${bound.some((b) => b.id === s.id && b.version === s.version) ? '<span class="pill green">已绑定</span>' : button('绑定此技能', 'bind-ma-skill', s.id, true)}</article>`).join('')}</div>${maSkills.length ? '' : '<p>当前 APIKey 下没有可用技能，请先在 MA 创建技能。</p>'}<div class="actions">${button('关闭', 'close')}${result.hasMore ? button('加载更多', 'more-ma-skills') : ''}</div>`,
+      `<p class="muted">本平台可用技能 ${maSkills.length} 项 · 来自 MA</p><input id="ma-skill-search" class="search" placeholder="搜索名称、描述或标签（如 ada）" aria-label="搜索 MA 技能" /><div class="grid compact-cards">${maSkills.map((s) => `<article class="entity-card" data-ma-skill-search="${esc((s.name + ' ' + s.description + ' ' + (s.tags || []).join(' ')).toLowerCase())}"><h3>${esc(s.name)}</h3><p class="card-description">${esc(s.description)}</p><p class="muted">${esc(s.id)} · v${esc(s.version)} ${esc((s.tags || []).join(' · '))}</p>${bound.some((b) => b.id === s.id && b.version === s.version) ? '<span class="pill green">已绑定</span>' : button('绑定此技能', 'bind-ma-skill', s.id, true)}</article>`).join('')}</div>${maSkills.length ? '' : '<p>本地清单暂无可用技能。</p>'}<div class="actions">${button('关闭', 'close')}</div>`,
     );
   } catch (error) {
     if (generation === maSkillGeneration && $('#modal').open)
@@ -1228,7 +1223,6 @@ document.addEventListener('click', async (event) => {
     return;
   }
   if (action === 'add-skill') return browseMaSkills(owner.id);
-  if (action === 'more-ma-skills') return browseMaSkills(maSkillEmployee, true);
   if (action === 'bind-ma-skill') {
     target.disabled = true;
     try {

@@ -1,6 +1,7 @@
 import { DomainError } from './domain.ts';
 import type { MaConfiguration } from './ma-config.ts';
 import type { LocalWorkspace } from './workspace.ts';
+import { PLATFORM_SKILLS } from './skill-catalog.ts';
 
 export class MaSkills {
   private config: Pick<MaConfiguration, 'apiKey'>;
@@ -54,22 +55,19 @@ export class MaSkills {
       id: item.id,
       name: item.name,
       description: typeof item.description === 'string' ? item.description : '',
-      tags: typeof item.description === 'string' && item.description.startsWith('[ada]') ? ['ada'] : [],
+      tags: [...(PLATFORM_SKILLS.find((entry) => entry.id === item.id)?.tags ?? [])],
       version: String(item.latest_version),
       source: 'ma',
       type: 'custom',
       enabled: true,
     };
   }
-  async list(page = '') {
-    if (page.length > 4096) throw new DomainError('分页参数无效');
-    const payload = await this.get(`/skills?limit=100${page ? `&page=${encodeURIComponent(page)}` : ''}`);
-    if (!Array.isArray(payload.data) || (payload.has_more && !payload.next_page))
-      throw new DomainError('MA 技能列表响应格式无效', 502);
+  async list() {
+    const skills = await Promise.all(PLATFORM_SKILLS.map((entry) => this.detail(entry.id)));
     return {
-      skills: payload.data.map((item: any) => this.normalize(item)),
-      hasMore: Boolean(payload.has_more),
-      nextPage: payload.next_page || '',
+      skills,
+      hasMore: false,
+      nextPage: '',
     };
   }
   async detail(id: string) {
@@ -80,6 +78,8 @@ export class MaSkills {
     return skill;
   }
   async bind(workspace: LocalWorkspace, employeeId: string, skillId: string) {
+    if (!PLATFORM_SKILLS.some((entry) => entry.id === skillId))
+      throw new DomainError('该技能不在本地技能清单中');
     if (!workspace.read().state.employees.some((e: any) => e.id === employeeId))
       throw new DomainError('员工不存在', 404);
     const skill = await this.detail(skillId);
