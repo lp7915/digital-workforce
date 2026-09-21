@@ -746,6 +746,15 @@ async function browseMaSkills(employeeId) {
   }
 }
 document.addEventListener('input', (event) => {
+  if (event.target.id === 'environment-search') {
+    const current = $('#employee-form').elements.maEnvironmentId.value;
+    $('#environment-select').innerHTML = environmentSelect(
+      environmentChoices.get(route().id),
+      current,
+      event.target.value,
+    );
+    return;
+  }
   if (event.target.id !== 'ma-skill-search') return;
   const query = event.target.value.trim().toLowerCase();
   document.querySelectorAll('[data-ma-skill-search]').forEach((card) => {
@@ -900,20 +909,7 @@ function employeeDetail(e, section) {
     content =
       panel('知识', '员工跨项目可复用的参考知识。', area('参考知识', 'knowledge', e.knowledge, 8)) +
       panel('规则', '约定员工必须遵守的行为与输出要求。', area('行为规则', 'rules', e.rules, 6));
-  if (section === 'environment')
-    content = panel(
-      '运行环境',
-      '模型通过「MA 配置」同步，超时在 Channel 重启后生效；名称与区域仅作登记。',
-      `<div class="form-grid">${field('环境名称', 'name', e.environment.name)}${field('模型', 'model', e.environment.model)}${select(
-        '区域',
-        'region',
-        e.environment.region,
-        [
-          ['北京', '北京'],
-          ['上海', '上海'],
-        ],
-      )}<label>运行超时（秒）<input type="number" name="timeout" min="30" max="3600" value="${e.environment.timeout}" required /></label></div>`,
-    );
+  if (section === 'environment') content = environmentPanel(e);
   if (section === 'channels')
     content = ['feishu', 'doubao']
       .map((key) => {
@@ -969,6 +965,62 @@ let selectedMemoryStore = '';
 let selectedMemoryEntry = '';
 let editingMemory = false;
 let pendingMemoryAction = null;
+const environmentChoices = new Map();
+async function loadEnvironmentChoices(employeeId) {
+  environmentChoices.set(employeeId, { loading: true });
+  try {
+    const path = `/employees/${encodeURIComponent(employeeId)}/environment`;
+    let result = await request(path);
+    if (!result.recommendedId) {
+      await request('/ma-environments/recommended', 'POST', {});
+      result = await request(path);
+    }
+    environmentChoices.set(employeeId, result);
+  } catch (error) {
+    environmentChoices.set(employeeId, { error: error.message });
+  }
+  if (route().id === employeeId && route().section === 'environment' && !dirty) render();
+}
+function environmentNote(item) {
+  if (!item) return '请选择一个可用的 MA 环境。';
+  const cli =
+    item.larkCli === 'startup'
+      ? `启动时自动安装 lark-cli ${item.larkCliVersion}，并校验安装包 SHA256。`
+      : '未确认此环境是否预装 lark-cli，请确保所选环境满足飞书技能依赖。';
+  return `${item.id} · ${item.type} · ${cli}`;
+}
+function environmentSelect(result, selectedId, query = '') {
+  const available = result.environments.filter((e) => e.compatible);
+  const matches = available
+    .filter((e) => (e.name + ' ' + e.id).toLowerCase().includes(query.toLowerCase()))
+    .slice(0, 50);
+  const current = available.find((e) => e.id === selectedId);
+  if (current && !matches.some((e) => e.id === selectedId)) matches.unshift(current);
+  const options = matches.map((e) => [e.id, `${e.name} · ${e.id}${e.recommended ? '（推荐）' : ''}`]);
+  if (selectedId && !current) options.unshift([selectedId, '当前环境不可用，请重新选择']);
+  return select('运行环境', 'maEnvironmentId', selectedId, options);
+}
+function environmentPanel(employee) {
+  const result = environmentChoices.get(employee.id);
+  if (!result) {
+    void loadEnvironmentChoices(employee.id);
+    return panel('MA 运行环境', '正在读取 MA 环境…', '');
+  }
+  if (result.loading) return panel('MA 运行环境', '正在读取 MA 环境…', '');
+  if (result.error)
+    return panel('MA 运行环境', esc(result.error), button('重新读取', 'refresh-environments', employee.id));
+  const selectedId = employee.environment.maEnvironmentId || result.selectedId;
+  const choices = result.environments.filter((e) => e.compatible);
+  return panel(
+    'MA 运行环境',
+    '选择 MA 侧的真实环境。保存后发送 /new，新 Session 使用所选环境。',
+    `<div class="section-toolbar"><span class="muted">已隐藏固定绑定其他飞书应用的环境</span>${button('刷新环境', 'refresh-environments', employee.id)}</div>` +
+      '<label>搜索 MA 环境<input id="environment-search" placeholder="输入环境名称或 ID，查看更多环境" type="search" /></label>' +
+      `<div id="environment-select">${environmentSelect(result, selectedId)}</div>` +
+      `<p id="environment-note" class="demo-note">${esc(environmentNote(choices.find((e) => e.id === selectedId)))}</p>` +
+      `<div class="form-grid">${field('模型', 'model', employee.environment.model)}<label>运行超时（秒）<input type="number" name="timeout" min="30" max="3600" value="${employee.environment.timeout}" required /></label></div><p class="demo-note">模型通过「MA 配置」同步；超时在 Channel 重启后生效。</p>`,
+  );
+}
 function memoryTreeMarkup(node) {
   return (
     [...node.folders]
@@ -1419,6 +1471,12 @@ document.addEventListener('click', async (event) => {
     }
     return;
   }
+  if (action === 'refresh-environments') {
+    if (dirty) return toast('请先保存当前配置后再刷新环境');
+    void loadEnvironmentChoices(id);
+    render();
+    return;
+  }
   if (action === 'organize-memory') {
     if (owner.memoryMode !== 'ma' || !owner.memoryStores.length) return toast('请先创建 MA 项目记忆库');
     modal(
@@ -1596,7 +1654,27 @@ document.addEventListener('submit', async (event) => {
     }
     if (section === 'identity') owner.identity = values.identity;
     if (section === 'knowledge') Object.assign(owner, { knowledge: values.knowledge, rules: values.rules });
-    if (section === 'environment') owner.environment = { ...values, timeout: Number(values.timeout) };
+    if (section === 'environment') {
+      const submit = form.querySelector('[type="submit"]');
+      submit.disabled = true;
+      try {
+        if (!values.maEnvironmentId) throw new Error('请等待环境加载并选择 MA 环境');
+        acceptServer(
+          await request(`/employees/${encodeURIComponent(owner.id)}/environment`, 'POST', {
+            ...values,
+            revision: serverRevision,
+          }),
+        );
+        dirty = false;
+        render();
+        toast('环境已保存，请发送 /new 后使用');
+      } catch (error) {
+        toast(error.message);
+      } finally {
+        submit.disabled = false;
+      }
+      return;
+    }
     if (section === 'channels') {
       if (values.doubaoEnabled === 'true' && !values.agentId.trim()) return toast('启用渠道前请填写对应标识');
       owner.channels = {
@@ -1842,6 +1920,15 @@ document.addEventListener('keydown', (event) => {
   }
 });
 document.addEventListener('input', (event) => {
+  if (event.target.id === 'environment-search') {
+    const current = $('#employee-form').elements.maEnvironmentId.value;
+    $('#environment-select').innerHTML = environmentSelect(
+      environmentChoices.get(route().id),
+      current,
+      event.target.value,
+    );
+    return;
+  }
   if (event.target.id === 'memory-path-input') {
     $('#memory-entry-form').elements.path.value = event.target.value;
     $('#memory-document-path').textContent = '/' + event.target.value;
@@ -1872,6 +1959,10 @@ document.addEventListener(
   true,
 );
 document.addEventListener('change', (event) => {
+  if (event.target.name === 'maEnvironmentId') {
+    const item = environmentChoices.get(route().id)?.environments?.find((e) => e.id === event.target.value);
+    if ($('#environment-note')) $('#environment-note').textContent = environmentNote(item);
+  }
   if (event.target.name === 'typeFilter') {
     typeFilter = event.target.value;
     applyFilters();

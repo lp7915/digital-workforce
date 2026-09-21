@@ -123,8 +123,8 @@ export type CredentialMetadata = {
   networking?: { type: string; allowed_hosts?: string[] };
 };
 
-const LARK_CLI_VERSION = "1.0.88";
-const LARK_CLI_SETUP_SCRIPT = `set -e
+export const LARK_CLI_VERSION = "1.0.88";
+export const LARK_CLI_SETUP_SCRIPT = `set -e
 case "$(uname -m)" in
   x86_64) ARCH=amd64; SHA=497de20939acdd2aae4c898fea7a0ca71d5a459ed543202e762a8bcb3228effe ;;
   aarch64|arm64) ARCH=arm64; SHA=96a3cac444947456ce9971c912946323f20d14416434da7e274bd9d77d7ac28b ;;
@@ -397,7 +397,7 @@ export class ArkClient {
       body: JSON.stringify({ name, config: {
         type: "cloud", networking: { type: "unrestricted" },
         env: {
-          LARKSUITE_CLI_APP_ID: feishuAppId,
+          ...(feishuAppId ? { LARKSUITE_CLI_APP_ID: feishuAppId } : {}),
           LARKSUITE_CLI_NO_UPDATE_NOTIFIER: "1",
           LARKSUITE_CLI_NO_SKILLS_NOTIFIER: "1",
           LARKSUITE_CLI_STRICT_MODE: "off"

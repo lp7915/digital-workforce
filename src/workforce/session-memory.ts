@@ -36,7 +36,14 @@ export function memoryScope(
   const projectId = project?.id || '';
   const fingerprint = createHash('sha256')
     .update(
-      JSON.stringify({ employeeId, projectId, storeIds, configurationHash, chatId: message.conversationId }),
+      JSON.stringify({
+        employeeId,
+        projectId,
+        storeIds,
+        configurationHash,
+        environmentId: employee.environment.maEnvironmentId || '',
+        chatId: message.conversationId,
+      }),
     )
     .digest('hex');
   return { employeeId, projectId, storeIds, fingerprint, configurationHash };

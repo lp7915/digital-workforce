@@ -1,3 +1,4 @@
+import { MaEnvironments, RECOMMENDED_ENVIRONMENT_NAME } from './ma-environments.ts';
 import { SessionMemory } from './session-memory.ts';
 import { MemoryOrganizer } from './memory-organizer.ts';
 import { MaMemoryApi } from './ma-memory.ts';
@@ -25,7 +26,14 @@ const workspace = new LocalWorkspace(resolve(dataDir, 'workspace.db'));
 migrateLocalSkills(workspace);
 const maConfig = new MaConfiguration(dataDir);
 const memories = new WorkspaceMemories(workspace, new MaMemoryApi(maConfig));
+const environments = new MaEnvironments(workspace, memories.api, () =>
+  new ArkClient(maConfig.apiKey()!, 'https://ark.cn-beijing.volces.com/api/v3').createEnvironment(
+    RECOMMENDED_ENVIRONMENT_NAME,
+    '',
+  ),
+);
 const channels = new WorkspaceChannels(workspace, { dataDir });
+channels.environments = environments;
 const sessionMemory = new SessionMemory(workspace, memories.api);
 const organizer = new MemoryOrganizer(memories, sessionMemory, (id) => channels.runtimeConfig(id));
 channels.organizer = organizer;
@@ -68,6 +76,7 @@ const { server, url } = await createWeb(w, {
   maConfig,
   memories,
   organizer,
+  environments,
 });
 channels.resume();
 const taskInterval = setInterval(() => {

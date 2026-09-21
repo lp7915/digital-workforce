@@ -1,3 +1,4 @@
+import type { MaEnvironments } from './ma-environments.ts';
 import type { WorkspaceMemories } from './workspace-memories.ts';
 import type { MemoryOrganizer } from './memory-organizer.ts';
 import { SessionMemory } from './session-memory.ts';
@@ -64,6 +65,7 @@ export function qrModules(url: string) {
 export class WorkspaceChannels {
   organizer?: MemoryOrganizer;
   memories?: WorkspaceMemories;
+  environments?: MaEnvironments;
   private workspace: LocalWorkspace;
   private options: Options;
   private active = new Map<string, AbortController>();
@@ -183,6 +185,7 @@ export class WorkspaceChannels {
       lastRepliedAt: b.lastRepliedAt,
       permissionsVersion: b.permissionsVersion || 1,
       permissionWarnings: b.permissionWarnings || [],
+      environmentId: b.environmentId,
       agentId: b.agentId,
       agentVersion: b.agentVersion,
       syncedAt: b.syncedAt,
@@ -194,7 +197,10 @@ export class WorkspaceChannels {
     const b = this.get(id);
     this.employee(id);
     if (!b?.agentId || !b.environmentId) throw new DomainError('请先完成该员工的 MA 与飞书接入', 409);
-    return { agentId: b.agentId, environmentId: b.environmentId };
+    return {
+      agentId: b.agentId,
+      environmentId: this.employee(id).environment.maEnvironmentId || b.environmentId,
+    };
   }
   async syncAgent(id: string) {
     const existing = this.synchronizing.get(id);
@@ -394,6 +400,15 @@ export class WorkspaceChannels {
     b.configurationHash = employeeConfigurationHash(employee);
     b.syncedAt = new Date().toISOString();
     checkpoint();
+    const selectedEnvironment = employee.environment.maEnvironmentId;
+    if (selectedEnvironment && this.environments) {
+      await this.environments.validate(selectedEnvironment, b.appId);
+      b.environmentId = selectedEnvironment;
+      checkpoint();
+    } else if (!b.environmentId && this.environments) {
+      b.environmentId = await this.environments.ensureRecommended();
+      checkpoint();
+    }
     await create(
       'environmentId',
       async () => (await ark.createEnvironment(`bf-${b.appId}`.slice(0, 60), b.appId!)).id,
@@ -467,6 +482,13 @@ export class WorkspaceChannels {
         const latest = this.get(b.employeeId)!;
         if (latest.configurationHash !== employeeConfigurationHash(this.employee(b.employeeId)))
           throw new DomainError('员工配置尚未同步 MA，请在工作台同步后继续');
+        const selectedEnvironment =
+          this.employee(b.employeeId).environment.maEnvironmentId || latest.environmentId;
+        if (selectedEnvironment) {
+          // Gateway 会重新读取所选环境，并重新注入当前员工的 Bot 身份与凭证边界。
+          delete draft.environment;
+          draft.environment_id = selectedEnvironment;
+        }
         return memory.build(b.employeeId, message, draft);
       },
       // 初始化已写入长期 App Secret；lark-cli 自行获取短期 Bot Token。

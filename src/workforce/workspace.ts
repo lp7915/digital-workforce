@@ -56,6 +56,11 @@ function validateConfiguration(employee: RecordData) {
   for (const name of ['identity', 'knowledge', 'rules', 'description'])
     text(employee[name], name, 30000, true);
   object(employee.environment, '环境');
+  if (
+    employee.environment.maEnvironmentId !== undefined &&
+    !/^env-[a-zA-Z0-9_-]{1,120}$/.test(employee.environment.maEnvironmentId)
+  )
+    throw new DomainError('MA 环境 ID 无效');
   for (const name of ['name', 'model', 'region']) text(employee.environment[name], '环境字段', 500, true);
   if (
     !Number.isInteger(employee.environment.timeout) ||

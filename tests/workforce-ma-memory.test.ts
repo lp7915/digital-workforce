@@ -372,3 +372,20 @@ test('排队写入在调用 MA 前重新校验权限，撤权不产生写入', a
     f.workspace.close();
   }
 });
+
+test('切换 MA 环境后旧 Session 必须 /new，不继续沿用旧环境', async () => {
+  const f = fixture();
+  try {
+    await f.memories.migrate('employees', 'e');
+    const policy = new SessionMemory(f.workspace, f.api);
+    const message: any = { conversationType: 'direct', conversationId: 'dm' };
+    f.sessions.set('sesn-env', { ...policy.build('e', message, { agent: 'agent-e' }), id: 'sesn-env' });
+    await policy.validate('e', message, 'sesn-env');
+    const latest = f.workspace.read();
+    latest.state.employees[0].environment.maEnvironmentId = 'env-selected';
+    f.workspace.save(latest.state, latest.revision);
+    await assert.rejects(policy.validate('e', message, 'sesn-env'), /new/);
+  } finally {
+    f.workspace.close();
+  }
+});

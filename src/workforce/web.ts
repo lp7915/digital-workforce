@@ -1,3 +1,4 @@
+import type { MaEnvironments } from './ma-environments.ts';
 import type { MemoryOrganizer } from './memory-organizer.ts';
 import type { WorkspaceMemories } from './workspace-memories.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -66,6 +67,7 @@ export async function createWeb(
     feishuGroups?: FeishuGroups;
     memories?: WorkspaceMemories;
     organizer?: MemoryOrganizer;
+    environments?: MaEnvironments;
   },
 ) {
   const lab = new LocalLab(w);
@@ -89,6 +91,43 @@ export async function createWeb(
       if (options.workspace && path.startsWith('/api/workspace')) {
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DomainError('拒绝跨站请求', 403);
         const workspace = options.workspace;
+        const environmentRoute = path.match(/^\/api\/workspace\/employees\/([^/]+)\/environment$/);
+        if (environmentRoute && options.environments) {
+          const id = decodeURIComponent(environmentRoute[1]);
+          const snapshot = workspace.read();
+          const employee = snapshot.state.employees.find((e: any) => e.id === id);
+          if (!employee) throw new DomainError('数字员工不存在', 404);
+          const binding = options.channels?.view(id);
+          if (method === 'GET') {
+            const list = await options.environments.list(binding?.appId);
+            return json(res, {
+              ...list,
+              selectedId:
+                employee.environment.maEnvironmentId || binding?.environmentId || list.recommendedId,
+            });
+          }
+          if (method === 'POST') {
+            const input = await body(req);
+            await options.environments.validate(input.maEnvironmentId, binding?.appId);
+            const latest = workspace.read();
+            if (input.revision !== latest.revision) throw new DomainError('配置已变化，请刷新后重试', 409);
+            const current = latest.state.employees.find((e: any) => e.id === id);
+            current.environment = {
+              maEnvironmentId: input.maEnvironmentId,
+              model: input.model,
+              timeout: Number(input.timeout),
+            };
+            return json(res, workspace.save(latest.state, latest.revision));
+          }
+        }
+        if (
+          path === '/api/workspace/ma-environments/recommended' &&
+          options.environments &&
+          method === 'POST'
+        ) {
+          await body(req);
+          return json(res, { id: await options.environments.ensureRecommended() });
+        }
         const organize = path.match(/^\/api\/workspace\/projects\/([^/]+)\/organize-memory$/);
         if (organize && options.organizer && method === 'POST') {
           const input = await body(req);
