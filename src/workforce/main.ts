@@ -7,6 +7,7 @@ import { GatewayStore } from '../store.ts';
 import { ArkClient } from '../ark.ts';
 import { MaExtractor } from './extractor.ts';
 import { LocalWorkspace } from './workspace.ts';
+import { WorkspaceChannels } from './channels.ts';
 
 const dataDir = resolve(process.env.WORKFORCE_DATA_DIR || 'data');
 mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -14,6 +15,7 @@ const lock = new GatewayStore(resolve(dataDir, 'web-lock.db'));
 lock.acquireRuntimeLock();
 const w = new Workforce(resolve(dataDir, 'workforce.db'));
 const workspace = new LocalWorkspace(resolve(dataDir, 'workspace.db'));
+const channels = new WorkspaceChannels(workspace, { dataDir });
 const tokenPath = resolve(dataDir, 'admin-token');
 if (!existsSync(tokenPath)) writeFileSync(tokenPath, randomBytes(32).toString('hex'), { mode: 0o600 });
 saveAccessToken(w, { id: 'admin', role: 'admin' }, readFileSync(tokenPath, 'utf8').trim());
@@ -43,7 +45,8 @@ if (process.env.WORKFORCE_EXTRACTOR_CONFIG) {
 }
 const port = Number(process.env.WORKFORCE_PORT || '8790');
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('WORKFORCE_PORT 无效');
-const { server, url } = await createWeb(w, { port, extractorMode, workspace });
+const { server, url } = await createWeb(w, { port, extractorMode, workspace, channels });
+channels.resume();
 const taskInterval = setInterval(() => {
   try {
     workspace.tick();
@@ -63,14 +66,15 @@ const interval = setInterval(() => {
     });
 }, 1000);
 console.log(
-  `数字员工本机工作台：${url}\n工作台数据：${resolve(dataDir, 'workspace.db')}\n本机工作台无需登录；任务执行本地上下文快照，未调用 MA 或启动真实 Bot。`,
+  `数字员工本机工作台：${url}\n工作台数据：${resolve(dataDir, 'workspace.db')}\n飞书 Channel 按已绑定员工启动；任务页的手动任务仍执行本地上下文快照。`,
 );
 let stopping = false;
-const stop = () => {
+const stop = async () => {
   if (stopping) return;
   stopping = true;
   clearInterval(interval);
   clearInterval(taskInterval);
+  await channels.stop();
   server.close(() => {
     w.close();
     workspace.close();

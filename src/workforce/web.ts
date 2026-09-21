@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { Workforce, DomainError, type Principal, type Job, type Memory, type Turn } from './domain.ts';
 import { LocalLab } from './lab.ts';
 import { LocalWorkspace } from './workspace.ts';
+import type { WorkspaceChannels } from './channels.ts';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 type Access = { id: string; principal: Principal; active: boolean; expiresAt?: number };
@@ -49,7 +50,13 @@ function json(res: ServerResponse, value: unknown, status = 200) {
 }
 export async function createWeb(
   w: Workforce,
-  options: { port: number; publicDir?: string; extractorMode?: string; workspace?: LocalWorkspace },
+  options: {
+    port: number;
+    publicDir?: string;
+    extractorMode?: string;
+    workspace?: LocalWorkspace;
+    channels?: WorkspaceChannels;
+  },
 ) {
   const lab = new LocalLab(w);
   const publicDir = options.publicDir || resolve('public');
@@ -72,6 +79,14 @@ export async function createWeb(
       if (options.workspace && path.startsWith('/api/workspace')) {
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DomainError('拒绝跨站请求', 403);
         const workspace = options.workspace;
+        const channel = path.match(/^\/api\/workspace\/employees\/([^/]+)\/feishu$/);
+        if (channel && options.channels) {
+          if (method === 'GET') return json(res, options.channels.view(decodeURIComponent(channel[1])));
+          if (method === 'POST') {
+            await body(req);
+            return json(res, options.channels.begin(decodeURIComponent(channel[1])), 202);
+          }
+        }
         if (path === '/api/workspace' && method === 'GET') return json(res, workspace.read());
         if (path === '/api/workspace' && method === 'PUT') {
           const input = await body(req, 4 * 1024 * 1024);

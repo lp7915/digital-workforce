@@ -960,6 +960,8 @@ code {
   gap: 18px;
 }
 .entity-card {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -975,6 +977,32 @@ code {
 .entity-card:hover {
   border-color: #cbd0d7;
   box-shadow: 0 3px 12px #25272b06;
+}
+/* 将详情入口扩展到整张卡片，其他链接和操作仍可独立点击。 */
+.entity-card:has(.card-footer > a[href]),
+.entity-card:has([data-action='open-store']),
+.entity-card:has([data-action='view-task']) {
+  cursor: pointer;
+}
+.entity-card .card-footer > a[href]::after,
+.entity-card [data-action='open-store']::after,
+.entity-card [data-action='view-task']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 12px;
+}
+.entity-card a:not(.card-footer > a[href]),
+.entity-card button:not([data-action='open-store'], [data-action='view-task']) {
+  position: relative;
+  z-index: 2;
+}
+.entity-card .card-footer > a[href]:focus-visible::after,
+.entity-card [data-action='open-store']:focus-visible::after,
+.entity-card [data-action='view-task']:focus-visible::after {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
 }
 .entity-card h3 {
   margin: 4px 0 0;
@@ -1452,4 +1480,14 @@ code {
   .memory-edit-fields {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+#feishu-progress a {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+#feishu-qr {
+  width: 280px;
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
 }

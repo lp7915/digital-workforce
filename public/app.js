@@ -472,6 +472,7 @@ async function commit(message) {
     dirty = false;
     render();
     toast(message === '已保存' ? '已保存到本机' : message + '，已保存到本机');
+    return true;
   } catch (error) {
     let backup = false;
     try {
@@ -503,6 +504,61 @@ function modal(title, body) {
 }
 function closeModal() {
   $('#modal').close();
+}
+let feishuPoll;
+let feishuDialogId;
+async function openFeishu(id, begin = false) {
+  clearTimeout(feishuPoll);
+  feishuDialogId = id;
+  modal(
+    '接入飞书',
+    '<div id="feishu-progress">正在读取接入状态…</div><div class="actions form-actions">' +
+      button('关闭', 'close') +
+      '</div>',
+  );
+  try {
+    const state = await request(
+      `/employees/${encodeURIComponent(id)}/feishu`,
+      begin ? 'POST' : 'GET',
+      begin ? {} : undefined,
+    );
+    paintFeishu(id, state);
+  } catch (error) {
+    if ($('#feishu-progress')) $('#feishu-progress').textContent = error.message;
+  }
+}
+function paintFeishu(id, state) {
+  if (!$('#modal').open || feishuDialogId !== id || !$('#feishu-progress')) return;
+  $('#feishu-progress').innerHTML = `<p role="status">${esc(state.message || state.status)}</p>
+    ${state.appId ? `<p>App ID：${esc(state.appId)}</p>` : ''}
+    ${state.url ? `<canvas id="feishu-qr" aria-label="使用飞书扫描创建应用" role="img"></canvas><p><a href="${esc(state.url)}" target="_blank" rel="noopener noreferrer">${esc(state.url)}</a></p><small>请使用当前账号确认。链接失效时请先核查飞书应用创建结果。</small>` : ''}
+    ${state.lastReceivedAt ? `<p>最近收到消息：${esc(new Date(state.lastReceivedAt).toLocaleString())}</p>` : ''}
+    ${state.lastRepliedAt ? `<p>最近成功回复：${esc(new Date(state.lastRepliedAt).toLocaleString())}</p>` : ''}
+    ${state.status === 'connected' ? '<p>先与机器人单聊测试。群聊中使用前，请将机器人加入群，并在「群聊」中关联此员工后 @机器人。</p>' : ''}`;
+  if (state.qr) {
+    const canvas = $('#feishu-qr'),
+      scale = 4,
+      size = state.qr.length;
+    canvas.width = canvas.height = (size + 8) * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#111';
+    state.qr.forEach((row, y) =>
+      row.forEach((dark, x) => {
+        if (dark) ctx.fillRect((x + 4) * scale, (y + 4) * scale, scale, scale);
+      }),
+    );
+  }
+  if (!['error', 'interrupted', 'unbound', 'awaiting_ma'].includes(state.status))
+    feishuPoll = setTimeout(async () => {
+      if (!$('#modal').open || !$('#feishu-progress') || feishuDialogId !== id) return;
+      try {
+        paintFeishu(id, await request(`/employees/${encodeURIComponent(id)}/feishu`));
+      } catch {
+        if ($('#feishu-progress')) $('#feishu-progress').textContent = '状态读取失败，请关闭后重新查看';
+      }
+    }, 2000);
 }
 function tabs(module, id, items, active) {
   return `<nav class="detail-tabs" aria-label="详情导航">${Object.entries(items)
@@ -607,6 +663,12 @@ function employeeDetail(e, section) {
       .map((key) => {
         const channel = e.channels[key];
         const feishu = key === 'feishu';
+        if (feishu)
+          return panel(
+            '飞书',
+            '用当前飞书账号确认创建应用，绑定后自动启动消息服务。',
+            `<div class="actions">${button('创建应用并接入', 'connect-feishu', '', true)}${button('查看接入状态', 'view-feishu')}</div><p class="muted">应用绑定由后端管理。当前先支持文本对话；豆包接入单独配置。</p>`,
+          );
         return panel(
           feishu ? '飞书' : '豆包',
           '仅保存接入配置，不建立真实连接。',
@@ -888,6 +950,8 @@ document.addEventListener('click', async (event) => {
   }
   const { owner } = context();
   if (action === 'reconnect') return connectWorkspace();
+  if (action === 'connect-feishu') return openFeishu(owner.id, true);
+  if (action === 'view-feishu') return openFeishu(owner.id);
   if (action === 'new-task') return editDialog('task');
   if (action === 'new-group') return editDialog('group');
   if (action === 'manage-group' || action === 'assign-group')
@@ -1036,13 +1100,9 @@ document.addEventListener('submit', async (event) => {
     if (section === 'knowledge') Object.assign(owner, { knowledge: values.knowledge, rules: values.rules });
     if (section === 'environment') owner.environment = { ...values, timeout: Number(values.timeout) };
     if (section === 'channels') {
-      if (
-        (values.feishuEnabled === 'true' && !values.appId.trim()) ||
-        (values.doubaoEnabled === 'true' && !values.agentId.trim())
-      )
-        return toast('启用渠道前请填写对应标识');
+      if (values.doubaoEnabled === 'true' && !values.agentId.trim()) return toast('启用渠道前请填写对应标识');
       owner.channels = {
-        feishu: { enabled: values.feishuEnabled === 'true', appId: values.appId.trim() },
+        feishu: owner.channels.feishu,
         doubao: { enabled: values.doubaoEnabled === 'true', agentId: values.agentId.trim() },
       };
     }
@@ -1081,8 +1141,11 @@ document.addEventListener('submit', async (event) => {
     const item = initialEmployee(uid(), values.name, values.description);
     data.employees.push(item);
     closeModal();
-    commit('员工已创建');
-    location.hash = `employees/${item.id}`;
+    if (await commit('员工已创建')) {
+      history.pushState(null, '', `#employees/${item.id}/channels`);
+      render();
+      await openFeishu(item.id, true);
+    }
     return;
   }
   if (kind === 'project') {
