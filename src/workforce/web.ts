@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Workforce, DomainError, type Principal, type Job, type Memory, type Turn } from './domain.ts';
 import { LocalLab } from './lab.ts';
+import { LocalWorkspace } from './workspace.ts';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 type Access = { id: string; principal: Principal; active: boolean; expiresAt?: number };
@@ -28,13 +29,13 @@ function authenticate(w: Workforce, req: IncomingMessage): Principal | undefined
   const entry = w.get<Access>('access', digest(token));
   if (entry?.active && (!entry.expiresAt || entry.expiresAt > Date.now())) return entry.principal;
 }
-async function body(req: IncomingMessage) {
+async function body(req: IncomingMessage, limit = 160000) {
   if (!req.headers['content-type']?.startsWith('application/json'))
     throw new DomainError('必须使用 application/json', 415);
   let text = '';
   for await (const chunk of req) {
     text += chunk;
-    if (Buffer.byteLength(text) > 160000) throw new DomainError('请求过大', 413);
+    if (Buffer.byteLength(text) > limit) throw new DomainError('请求过大', 413);
   }
   try {
     return JSON.parse(text);
@@ -48,7 +49,7 @@ function json(res: ServerResponse, value: unknown, status = 200) {
 }
 export async function createWeb(
   w: Workforce,
-  options: { port: number; publicDir?: string; extractorMode?: string },
+  options: { port: number; publicDir?: string; extractorMode?: string; workspace?: LocalWorkspace },
 ) {
   const lab = new LocalLab(w);
   const publicDir = options.publicDir || resolve('public');
@@ -68,6 +69,25 @@ export async function createWeb(
       const url = new URL(req.url || '/', origin);
       const path = url.pathname;
       const method = req.method || 'GET';
+      if (options.workspace && path.startsWith('/api/workspace')) {
+        if (req.headers['sec-fetch-site'] === 'cross-site') throw new DomainError('拒绝跨站请求', 403);
+        const workspace = options.workspace;
+        if (path === '/api/workspace' && method === 'GET') return json(res, workspace.read());
+        if (path === '/api/workspace' && method === 'PUT') {
+          const input = await body(req, 4 * 1024 * 1024);
+          return json(res, workspace.save(input?.state, input?.revision));
+        }
+        if (path === '/api/workspace/tasks' && method === 'GET')
+          return json(res, { tasks: workspace.tasks() });
+        if (path === '/api/workspace/tasks' && method === 'POST')
+          return json(res, workspace.enqueue(await body(req)), 201);
+        const cancel = path.match(/^\/api\/workspace\/tasks\/([^/]+)\/cancel$/);
+        if (cancel && method === 'POST') {
+          await body(req);
+          return json(res, workspace.cancel(cancel[1]));
+        }
+        throw new DomainError('工作台接口不存在', 404);
+      }
       if (path === '/api/login' && method === 'POST') {
         const input = await body(req);
         if (typeof input?.token !== 'string') throw new DomainError('令牌无效', 401);

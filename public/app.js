@@ -1,4 +1,4 @@
-// 前端演示数据适配层。接入后端时替换 repository，页面不直接发送业务请求。
+// 浏览器旧数据仅用于首次导入；连接后以本机 SQLite 工作台为准。
 const storageKey = 'workforce.frontend.v1';
 const copy = (value) => structuredClone(value);
 const uid = () => crypto.randomUUID();
@@ -225,6 +225,51 @@ const repository = {
   },
 };
 let data = repository.load();
+let serverRevision = 0;
+let confirmedData = null;
+let connected = false;
+let saving = false;
+async function request(path, method = 'GET', body) {
+  const response = await fetch('/api/workspace' + path, {
+    method,
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || '本机服务请求失败');
+  return result;
+}
+function acceptServer(result) {
+  serverRevision = result.revision;
+  data = migrateMemories(result.state);
+  confirmedData = copy(data);
+}
+async function connectWorkspace() {
+  $('#content').innerHTML = '<div class="empty">正在连接本机服务…</div>';
+  try {
+    let result = await request('');
+    if (!result.initialized) {
+      const initial = migrateMemories(repository.load());
+      initial.tasks = [];
+      try {
+        result = await request('', 'PUT', { revision: 0, state: initial });
+      } catch (error) {
+        result = await request('');
+        if (!result.initialized) throw error;
+      }
+    }
+    acceptServer(result);
+    connected = true;
+    $('.header-right .pill').textContent = '本机服务已连接';
+    render();
+  } catch (error) {
+    connected = false;
+    $('.header-right .pill').textContent = '本机服务未连接';
+    $('#content').innerHTML =
+      empty('无法连接本机工作台', esc(error.message)) + button('重试连接', 'reconnect', '', true);
+  }
+}
 let search = '',
   statusFilter = 'all',
   typeFilter = 'all',
@@ -386,7 +431,7 @@ const empty = (title, description) =>
 const head = (title, description, action = '') =>
   `<div class="page-head"><div><h1>${esc(title)}</h1><p>${esc(description)}</p></div><div class="actions">${action}</div></div>`;
 const saveBar = () =>
-  '<div class="actions form-actions"><small id="save-state">配置仅保存到当前浏览器</small><button class="primary" type="submit">保存配置</button></div>';
+  '<div class="actions form-actions"><small id="save-state">配置保存到本机 SQLite</small><button class="primary" type="submit">保存配置</button></div>';
 function toast(message) {
   if ($('#modal').open && $('#dialog-feedback')) {
     $('#dialog-feedback').textContent = message;
@@ -399,11 +444,41 @@ function toast(message) {
     $('#toast').hidden = true;
   }, 3500);
 }
-function commit(message) {
-  const persisted = repository.save(data);
-  dirty = false;
-  render();
-  toast(persisted ? message + '（前端演示）' : '当前会话已更新，但浏览器无法持久保存');
+async function commit(message) {
+  if (saving || !connected) return;
+  saving = true;
+  $('#app').inert = true;
+  $('#modal').inert = true;
+  const pending = copy(migrateMemories(data));
+  try {
+    const result = await request('', 'PUT', { revision: serverRevision, state: pending });
+    acceptServer(result);
+    dirty = false;
+    render();
+    toast(message === '已保存' ? '已保存到本机' : message + '，已保存到本机');
+  } catch (error) {
+    let backup = false;
+    try {
+      localStorage.setItem('workforce.unsaved-backup', JSON.stringify(pending));
+      backup = true;
+    } catch {
+      /* 存储失败时仍明确提示未保存。 */
+    }
+    try {
+      acceptServer(await request(''));
+    } catch {
+      data = copy(confirmedData);
+    }
+    dirty = false;
+    render();
+    toast(
+      `保存失败：${error.message}。${backup ? '未保存修改已留存浏览器备份 workforce.unsaved-backup。' : '未保存修改无法备份，请重新编辑。'}`,
+    );
+  } finally {
+    saving = false;
+    $('#app').inert = false;
+    $('#modal').inert = false;
+  }
 }
 function modal(title, body) {
   $('#modal-content').innerHTML =
@@ -422,6 +497,7 @@ function tabs(module, id, items, active) {
     .join('')}</nav>`;
 }
 function render() {
+  if (!connected) return;
   const { module, id, section } = route();
   document.querySelectorAll('[data-nav]').forEach((link) => {
     link.classList.toggle('active', link.dataset.nav === module);
@@ -492,7 +568,7 @@ function employeeDetail(e, section) {
   if (section === 'environment')
     content = panel(
       '运行环境',
-      '仅演示环境配置，实际可选项由后端提供。',
+      '保存员工环境配置；外部运行环境尚未连接。',
       `<div class="form-grid">${field('环境名称', 'name', e.environment.name)}${field('模型', 'model', e.environment.model)}${select(
         '区域',
         'region',
@@ -524,7 +600,7 @@ function employeeDetail(e, section) {
   if (section === 'credentials')
     content = `<div class="section-toolbar"><p class="muted">仅登记凭证名称和引用标识，不接收或保存密钥。</p>${button('＋ 登记凭证', 'add-credential')}</div><div class="grid compact-cards">${e.credentials.map((credential) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">♧</span>${badge('待后端接入')}</div><h3>${esc(credential.name)}</h3><p class="card-description">${esc(credential.reference)}</p><div class="card-footer"><span>凭证引用</span>${button('移除', 'remove-credential', credential.id)}</div></article>`).join('')}</div>${!e.credentials.length ? empty('尚未登记凭证', '登记凭证引用后，由后端完成安全存储与授权。') : ''}`;
   if (section === 'versions')
-    content = `<div class="section-toolbar"><p class="muted">保存当前配置快照，演示发布与版本切换。</p>${button('发布版本', 'publish', '', true)}</div><div class="version-stack">${[
+    content = `<div class="section-toolbar"><p class="muted">保存当前配置快照，支持本地版本发布与切换。</p>${button('发布版本', 'publish', '', true)}</div><div class="version-stack">${[
       ...e.versions,
     ]
       .reverse()
@@ -532,7 +608,7 @@ function employeeDetail(e, section) {
         (version) =>
           `<article class="panel version-card"><div><h3>v${version.number} ${version.id === e.activeVersion ? badge('当前版本', 'green') : ''}</h3><p class="muted">${esc(version.note)} · ${date(version.createdAt)}</p></div><div class="actions">${button('查看配置', 'view-version', version.id)}${version.id !== e.activeVersion ? button('切换到此版本', 'activate-version', version.id) : ''}</div></article>`,
       )
-      .join('')}</div>${!e.versions.length ? empty('暂无版本', '完成员工配置后，发布第一个演示版本。') : ''}`;
+      .join('')}</div>${!e.versions.length ? empty('暂无版本', '完成员工配置后，发布第一个本地版本。') : ''}`;
   const editable = ['basic', 'identity', 'knowledge', 'environment', 'channels'].includes(section);
   return (
     `<a class="back" href="#employees">← 数字员工</a>` +
@@ -596,7 +672,7 @@ function projectDetail(p, section) {
   if (section === 'groups')
     content = `<div class="section-toolbar"><p class="muted">维护项目关联群聊，并指定服务员工。</p>${button('＋ 关联群聊', 'add-group', '', true)}</div><div class="grid compact-cards">${p.groups.map((group) => `<article class="entity-card"><span class="entity-icon">▦</span><h3>${esc(group.name)}</h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">数字员工 · ${esc(employeeName(group.employeeId))}</p><div class="actions">${button('编辑', 'edit-group', group.id)}${button('解除关联', 'remove-group', group.id)}</div></article>`).join('')}</div>${!p.groups.length ? empty('尚未关联群聊', '将群聊关联到项目，组织项目协作。') : ''}`;
   if (section === 'members')
-    content = `<div class="section-toolbar"><p class="muted">管理谁可以查看、改写记忆，以及维护成员。</p>${button('＋ 添加成员', 'add-member', '', true)}</div><div class="permission-legend"><span><b>查看</b> 只读项目记忆</span><span><b>改写</b> 可新增、编辑和删除记忆</span><span><b>管理</b> 改写记忆及管理成员</span></div><p class="demo-note">这里演示权限配置；实际鉴权由后端执行。</p><div class="grid compact-cards">${p.members.map((member) => `<article class="entity-card"><div class="card-top"><span class="member-avatar">${esc(member.name.slice(0, 1))}</span>${badge({ read: '查看', write: '改写', manage: '管理' }[member.permission])}</div><h3>${esc(member.name)}</h3><p class="card-description">${esc(member.account)}</p><div class="actions">${button('修改权限', 'edit-member', member.id)}${button('移除', 'remove-member', member.id)}</div></article>`).join('')}</div>`;
+    content = `<div class="section-toolbar"><p class="muted">管理谁可以查看、改写记忆，以及维护成员。</p>${button('＋ 添加成员', 'add-member', '', true)}</div><div class="permission-legend"><span><b>查看</b> 只读项目记忆</span><span><b>改写</b> 可新增、编辑和删除记忆</span><span><b>管理</b> 改写记忆及管理成员</span></div><p class="demo-note">当前为本机管理员模式；成员权限已保存，多用户身份鉴权尚未接入。</p><div class="grid compact-cards">${p.members.map((member) => `<article class="entity-card"><div class="card-top"><span class="member-avatar">${esc(member.name.slice(0, 1))}</span>${badge({ read: '查看', write: '改写', manage: '管理' }[member.permission])}</div><h3>${esc(member.name)}</h3><p class="card-description">${esc(member.account)}</p><div class="actions">${button('修改权限', 'edit-member', member.id)}${button('移除', 'remove-member', member.id)}</div></article>`).join('')}</div>`;
   return (
     '<a class="back" href="#projects">← 项目</a>' +
     head(p.name, p.description, button('编辑项目', 'edit-project')) +
@@ -608,8 +684,12 @@ function projectDetail(p, section) {
 function runningTasks() {
   const rows = activeTasks(data.tasks);
   return (
-    head('运行中的任务', '查看数字员工正在处理和等待执行的任务。') +
-    `<p class="muted">${rows.filter((r) => r.status === 'running').length} 项执行中 · ${rows.filter((r) => r.status === 'queued').length} 项等待中 · 演示进度，不自动更新</p><div class="observation-filters"><input id="search" class="search" aria-label="搜索任务" placeholder="搜索任务、员工或项目…" value="${esc(search)}" />${select(
+    head(
+      '运行中的任务',
+      '本地执行上下文快照，验证员工配置与项目记忆的组装。',
+      button('＋ 发起本地任务', 'new-task', '', true),
+    ) +
+    `<p class="muted">${rows.filter((r) => r.status === 'running').length} 项执行中 · ${rows.filter((r) => r.status === 'queued').length} 项等待中 · 每 2 秒更新</p><div class="observation-filters"><input id="search" class="search" aria-label="搜索任务" placeholder="搜索任务、员工或项目…" value="${esc(search)}" />${select(
       '类型',
       'typeFilter',
       typeFilter,
@@ -622,7 +702,16 @@ function runningTasks() {
       ['all', '全部状态'],
       ['running', '执行中'],
       ['queued', '等待中'],
-    ])}</div><div class="grid compact-cards">${rows.map((row) => `<article class="entity-card" data-search="${esc(row.name + employeeName(row.employeeId) + projectName(row.projectId))}" data-status="${esc(row.status)}" data-type="${esc(row.type)}"><div class="card-top"><span class="muted">${row.type === 'run' ? '员工任务' : '记忆任务'}</span>${badge(row.status === 'running' ? '执行中' : '等待中', row.status === 'running' ? 'green' : '')}</div><h3>${esc(row.name)}</h3><p class="card-description">${esc(employeeName(row.employeeId))}<br/>${esc(projectName(row.projectId))}</p><p>${esc(row.progress)}</p><div class="card-footer"><span>演示任务</span>${button('查看进度', 'view-task', row.id)}</div></article>`).join('')}</div><div id="filter-empty" hidden>${empty(rows.length ? '没有匹配任务' : '暂无运行中的任务', rows.length ? '调整关键词或筛选条件。' : '数字员工开始执行任务后，将在这里显示。')}</div>`
+    ])}</div><div class="grid compact-cards">${rows.map((row) => `<article class="entity-card" data-search="${esc(row.name + employeeName(row.employeeId) + projectName(row.projectId))}" data-status="${esc(row.status)}" data-type="${esc(row.type)}"><div class="card-top"><span class="muted">本地上下文快照</span>${badge(row.status === 'running' ? '执行中' : '等待中', row.status === 'running' ? 'green' : '')}</div><h3>${esc(row.name)}</h3><p class="card-description">${esc(employeeName(row.employeeId))}<br/>${esc(projectName(row.projectId))}</p><p>${esc(row.progress)}</p><div class="card-footer">${button('取消任务', 'cancel-task', row.id)}${button('查看进度', 'view-task', row.id)}</div></article>`).join('')}</div><div id="filter-empty" hidden>${empty(rows.length ? '没有匹配任务' : '暂无运行中的任务', rows.length ? '调整关键词或筛选条件。' : '点击发起本地任务开始验收。')}</div><details class="panel"><summary>最近结束的任务</summary>${
+      data.tasks
+        .filter((task) => !['queued', 'running'].includes(task.status))
+        .slice(0, 20)
+        .map(
+          (task) =>
+            `<div class="section-toolbar"><span>${esc(task.name)} · ${esc({ completed: '已完成', cancelled: '已取消', failed: '失败' }[task.status])}</span>${button('查看结果', 'view-task', task.id)}</div>`,
+        )
+        .join('') || '<p class="muted">暂无记录</p>'
+    }</details>`
   );
 }
 function applyFilters() {
@@ -648,6 +737,23 @@ function context() {
 function editDialog(kind, item = {}) {
   const { owner } = context();
   let title, fields;
+  if (kind === 'task') {
+    title = '发起本地任务';
+    fields =
+      '<p class="muted">生成上下文快照，不调用 MA，不发送群消息。</p>' +
+      field('任务名称', 'name', '上下文验收', '', true) +
+      select(
+        '数字员工',
+        'employeeId',
+        '',
+        data.employees.filter((employee) => employee.enabled).map((employee) => [employee.id, employee.name]),
+      ) +
+      select('关联项目', 'projectId', '', [
+        ['', '无项目'],
+        ...data.projects.map((project) => [project.id, project.name]),
+      ]) +
+      `<input type="hidden" name="requestId" value="${uid()}" />`;
+  }
   if (kind === 'employee' || kind === 'project') {
     title = (item.id ? '编辑' : '创建') + (kind === 'employee' ? '数字员工' : '项目');
     fields =
@@ -721,14 +827,14 @@ function editDialog(kind, item = {}) {
     fields = field('技能名称', 'name', '', '例如：文案校对', true) + area('技能说明', 'description', '', 3);
   }
   if (kind === 'publish') {
-    title = '发布演示版本';
+    title = '发布本地版本';
     fields =
       '<p class="muted">将当前已保存配置生成本地版本快照，不会发布到 MA。</p>' +
       field('版本说明', 'note', '', '概述本次调整', true);
   }
   modal(
     title,
-    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'publish' ? '确认发布' : kind === 'memory-info' ? '应用' : '保存'}</button></div><p class="demo-note">${kind === 'memory-info' ? '应用后，点击内容区顶部的保存，与正文和路径一起保存。' : '仅更新当前浏览器中的演示数据'}</p></form>`,
+    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'publish' ? '确认发布' : kind === 'memory-info' ? '应用' : '保存'}</button></div><p class="demo-note">${kind === 'memory-info' ? '应用后，点击内容区顶部的保存，与正文和路径一起保存。' : '保存到本机工作台'}</p></form>`,
   );
 }
 function confirmAction(title, text, action, id) {
@@ -737,7 +843,7 @@ function confirmAction(title, text, action, id) {
     `<p>${esc(text)}</p><div class="actions form-actions">${button('取消', 'close')}${button('确认', action, id, true)}</div>`,
   );
 }
-document.addEventListener('click', (event) => {
+document.addEventListener('click', async (event) => {
   const target = event.target.closest('[data-action]');
   if (!target) return;
   let action = target.dataset.action,
@@ -749,6 +855,18 @@ document.addEventListener('click', (event) => {
     closeModal();
   }
   const { owner } = context();
+  if (action === 'reconnect') return connectWorkspace();
+  if (action === 'new-task') return editDialog('task');
+  if (action === 'cancel-task') {
+    try {
+      await request(`/tasks/${encodeURIComponent(id)}/cancel`, 'POST', {});
+      await refreshTasks();
+      toast('任务已取消');
+    } catch (error) {
+      toast(error.message);
+    }
+    return;
+  }
   if (action === 'close') return closeModal();
   if (action === 'new-employee') return editDialog('employee');
   if (action === 'new-project') return editDialog('project');
@@ -757,7 +875,7 @@ document.addEventListener('click', (event) => {
     const row = data.tasks.find((r) => r.id === id);
     return modal(
       row.name,
-      `<p class="muted">${esc(employeeName(row.employeeId))} · ${esc(projectName(row.projectId))}</p>${badge(row.status === 'running' ? '执行中' : '等待中')}<p>${esc(row.detail)}</p><ol class="timeline">${row.steps.map((step) => `<li>${esc(step)}</li>`).join('')}</ol><p class="muted">前端演示，尚未连接实时任务状态。</p>`,
+      `<p class="muted">${esc(employeeName(row.employeeId))} · ${esc(projectName(row.projectId))}</p>${badge({ running: '执行中', queued: '等待中', completed: '已完成', cancelled: '已取消', failed: '失败' }[row.status])}<p>${esc(row.detail)}</p><ol class="timeline">${row.steps.map((step) => `<li>${esc(step)}</li>`).join('')}</ol>${row.result ? `<h3>执行结果</h3><pre class="task-result">${esc(row.result)}</pre>` : '<p class="muted">关闭详情后列表自动更新。</p>'}`,
     );
   }
   if (!owner) return;
@@ -834,7 +952,7 @@ document.addEventListener('click', (event) => {
     return commit('版本已切换');
   }
   if (action.startsWith('remove-') || action === 'delete-memory')
-    return confirmAction('确认移除', '此操作仅移除本地演示记录。', 'confirm-' + action, id);
+    return confirmAction('确认移除', '确认从本机工作台移除此记录？', 'confirm-' + action, id);
   if (action.startsWith('confirm-remove-') || action === 'confirm-delete-memory') {
     const collection = {
       'confirm-remove-group': 'groups',
@@ -855,7 +973,7 @@ document.addEventListener('click', (event) => {
     return commit('记录已移除');
   }
 });
-document.addEventListener('submit', (event) => {
+document.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.target;
   const values = Object.fromEntries(new FormData(form));
@@ -890,6 +1008,21 @@ document.addEventListener('submit', (event) => {
   if (form.id !== 'dialog-form' && form.id !== 'memory-entry-form') return;
   const kind = form.dataset.kind,
     id = form.dataset.id;
+  if (kind === 'task') {
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      await request('/tasks', 'POST', values);
+      closeModal();
+      await refreshTasks();
+      toast('任务已提交到本机队列');
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      submit.disabled = false;
+    }
+    return;
+  }
   if (kind === 'memory-info') {
     for (const [name, value] of Object.entries(values))
       $('#memory-entry-form').elements[name].value = value.trim();
@@ -917,7 +1050,7 @@ document.addEventListener('submit', (event) => {
         ...values,
         memories: [],
         groups: [],
-        members: [{ id: uid(), name: '当前演示用户', account: 'demo-user', permission: 'manage' }],
+        members: [{ id: uid(), name: '本机管理员', account: 'local-admin', permission: 'manage' }],
       });
   }
   if (kind === 'memory') {
@@ -998,7 +1131,7 @@ document.addEventListener('submit', (event) => {
     owner.activeVersion = version.id;
   }
   closeModal();
-  commit(kind === 'publish' ? '演示版本已发布' : '已保存');
+  commit(kind === 'publish' ? '本地版本已发布' : '已保存');
 });
 function startPathRename() {
   const input = $('#memory-path-input');
@@ -1092,4 +1225,37 @@ window.addEventListener('hashchange', () => {
   render();
   window.scrollTo(0, 0);
 });
-render();
+let pollingTasks = false;
+let taskRenderPending = false;
+async function refreshTasks() {
+  if (pollingTasks || !connected) return;
+  pollingTasks = true;
+  try {
+    const result = await request('/tasks');
+    const changed = JSON.stringify(data.tasks) !== JSON.stringify(result.tasks);
+    taskRenderPending ||= changed;
+    data.tasks = result.tasks;
+    if (confirmedData) confirmedData.tasks = copy(result.tasks);
+    if (
+      taskRenderPending &&
+      route().module === 'tasks' &&
+      !$('#modal').open &&
+      !document.querySelector('.select-menu:popover-open') &&
+      !document.activeElement?.matches('input, [role="combobox"]')
+    ) {
+      const historyOpen = $('#content details')?.open;
+      render();
+      if ($('#content details')) $('#content details').open = historyOpen;
+      taskRenderPending = false;
+    }
+  } finally {
+    pollingTasks = false;
+  }
+}
+setInterval(() => {
+  if (connected && !saving && route().module === 'tasks')
+    refreshTasks().catch(() => {
+      $('.header-right .pill').textContent = '任务更新失败，请检查本机服务';
+    });
+}, 2000);
+connectWorkspace();
