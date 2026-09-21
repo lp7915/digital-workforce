@@ -958,6 +958,43 @@ code {
   width: auto;
   margin: 0;
 }
+.employee-picker {
+  border: 0;
+  padding: 0;
+  margin: 20px 0;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.employee-picker legend {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+.employee-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.employee-choice:has(input:checked) {
+  background: var(--bg);
+  border-color: #a1a1aa;
+}
+.employee-choice input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--ink);
+}
+.employee-choice small {
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .employee-summary {
   display: flex;
   flex-wrap: wrap;

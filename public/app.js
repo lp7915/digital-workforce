@@ -1063,11 +1063,15 @@ function editDialog(kind, item = {}) {
   if (kind === 'group-employees') {
     title = '添加数字员工 · ' + item.name;
     fields =
-      '<p class="muted">以当前登录用户身份，将所选员工的机器人添加到此飞书群。员工需已完成飞书连接；提交时会重新校验群管理权限。</p>' +
-      select('数字员工', 'employeeId', '', [
-        ['', '请选择数字员工'],
-        ...(item.availableEmployees || []).map((e) => [e.id, e.name]),
-      ]);
+      '<p class="muted">可同时选择多个数字员工，逐一将其机器人添加到飞书群。已添加的员工会保留。</p>' +
+      `<fieldset class="employee-picker"><legend>选择数字员工（可多选）</legend>${
+        (item.availableEmployees || [])
+          .map((e) => {
+            const added = item.employeeIds.includes(e.id);
+            return `<label class="employee-choice"><input type="checkbox" name="employeeIds" value="${esc(e.id)}" ${added ? 'checked disabled' : ''} /><span>${esc(e.name)}</span><small data-employee-result>${added ? '已添加' : '已连接飞书'}</small></label>`;
+          })
+          .join('') || '<p class="muted">暂无可添加的员工，请先完成员工的飞书连接。</p>'
+      }</fieldset>`;
   }
   if (kind === 'member') {
     title = item.id ? '修改成员权限' : '添加成员';
@@ -1429,24 +1433,51 @@ document.addEventListener('submit', async (event) => {
     syncProjectGroups(data);
   }
   if (kind === 'group-employees') {
-    if (!values.employeeId) return toast('请选择数字员工');
+    const selected = [...form.querySelectorAll('input[name="employeeIds"]:checked:not(:disabled)')];
+    if (!selected.length) return toast('请选择至少一位尚未添加的数字员工');
     const submit = form.querySelector('[type="submit"]');
     submit.disabled = true;
+    const choices = [...form.querySelectorAll('input[name="employeeIds"]:not(:disabled)')];
+    choices.forEach((input) => {
+      input.disabled = true;
+    });
+    const succeeded = new Set();
+    const failures = [];
     try {
       const group = data.groups.find((group) => group.id === id);
-      acceptServer(
-        await request('/feishu-groups/employees', 'POST', {
-          chatId: group.chatId,
-          employeeId: values.employeeId,
-        }),
-      );
-      closeModal();
+      for (const [index, input] of selected.entries()) {
+        submit.textContent = `正在添加 ${index + 1}/${selected.length}`;
+        const resultLabel = input.closest('label').querySelector('[data-employee-result]');
+        resultLabel.textContent = '正在添加…';
+        try {
+          acceptServer(
+            await request('/feishu-groups/employees', 'POST', {
+              chatId: group.chatId,
+              employeeId: input.value,
+            }),
+          );
+          succeeded.add(input.value);
+          resultLabel.textContent = '已添加';
+        } catch (error) {
+          failures.push(`${employeeName(input.value)}：${error.message}`);
+          resultLabel.textContent = '添加失败，可重试';
+        }
+      }
       render();
-      toast('数字员工已加入飞书群，可在群中 @ 使用');
+      if (failures.length) {
+        toast(`已添加 ${succeeded.size} 位，${failures.length} 位未完成。${failures.join('；')}`);
+      } else {
+        closeModal();
+        toast(`${succeeded.size} 位数字员工已加入飞书群，可在群中 @ 使用`);
+      }
     } catch (error) {
       toast(error.message);
     } finally {
+      choices.forEach((input) => {
+        input.disabled = succeeded.has(input.value);
+      });
       submit.disabled = false;
+      submit.textContent = failures.length ? '重试所选员工' : '确认添加到飞书群';
     }
     return;
   }
