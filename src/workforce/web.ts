@@ -8,6 +8,7 @@ import { LocalWorkspace } from './workspace.ts';
 import type { WorkspaceChannels } from './channels.ts';
 import type { MaConfiguration } from './ma-config.ts';
 import type { FeishuGroups } from './feishu-groups.ts';
+import { initializeAda } from './employee-templates.ts';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 type Access = { id: string; principal: Principal; active: boolean; expiresAt?: number };
@@ -83,6 +84,10 @@ export async function createWeb(
       if (options.workspace && path.startsWith('/api/workspace')) {
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DomainError('拒绝跨站请求', 403);
         const workspace = options.workspace;
+        if (path === '/api/workspace/employee-templates/ada/initialize' && method === 'POST') {
+          await body(req);
+          return json(res, initializeAda(workspace));
+        }
         if (path === '/api/workspace/feishu-groups' && options.feishuGroups) {
           if (method === 'GET')
             return json(res, await options.feishuGroups.list(url.searchParams.get('pageToken') || ''));

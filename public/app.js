@@ -766,7 +766,13 @@ function overview(module) {
     head(
       names[module],
       employees ? '配置数字员工，让能力在项目中复用。' : '连接群聊与成员，沉淀共同的项目记忆。',
-      button(employees ? '＋ 创建员工' : '＋ 创建项目', employees ? 'new-employee' : 'new-project', '', true),
+      (employees ? button('初始化 ADA', 'initialize-ada') : '') +
+        button(
+          employees ? '＋ 创建员工' : '＋ 创建项目',
+          employees ? 'new-employee' : 'new-project',
+          '',
+          true,
+        ),
     ) +
     `<div class="toolbar"><span class="muted">共 ${items.length} ${employees ? '位员工' : '个项目'}</span><input id="search" class="search" aria-label="搜索${names[module]}" placeholder="搜索${names[module]}…" value="${esc(search)}" /></div><div class="grid compact-cards">` +
     items
@@ -840,7 +846,7 @@ function employeeDetail(e, section) {
       })
       .join('');
   if (section === 'skills')
-    content = `<div class="section-toolbar"><p class="muted">配置员工可以使用的技能。</p>${button('＋ 添加技能', 'add-skill')}</div><div class="grid compact-cards">${e.skills.map((skill) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◇</span>${badge(skill.enabled ? '已启用' : '已停用', skill.enabled ? 'green' : '')}</div><h3>${esc(skill.name)}</h3><p class="card-description">${esc(skill.description)}</p><div class="actions">${button(skill.enabled ? '停用' : '启用', 'toggle-skill', skill.id)}${button('移除', 'remove-skill', skill.id)}</div></article>`).join('')}</div>${!e.skills.length ? empty('暂无技能', '添加技能，为员工扩展能力。') : ''}`;
+    content = `<div class="section-toolbar"><p class="muted">配置分析步骤与执行说明，新建 MA Agent 时加载已启用的说明。</p>${button('＋ 添加技能', 'add-skill')}</div><div class="grid compact-cards">${e.skills.map((skill) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◇</span>${badge(skill.enabled ? '已启用' : '已停用', skill.enabled ? 'green' : '')}</div><h3>${esc(skill.name)}</h3><p class="card-description">${esc(skill.description)}</p>${skill.instructions ? `<details><summary>执行说明</summary><p>${esc(skill.instructions)}</p></details>` : ''}<div class="actions">${button('编辑', 'edit-skill', skill.id)}${button(skill.enabled ? '停用' : '启用', 'toggle-skill', skill.id)}${button('移除', 'remove-skill', skill.id)}</div></article>`).join('')}</div>${!e.skills.length ? empty('暂无技能', '添加技能，为员工扩展能力。') : ''}`;
   if (section === 'memories') content = memoryList(e, false);
   if (section === 'credentials')
     content = `<div class="section-toolbar"><p class="muted">仅登记凭证名称和引用标识，不接收或保存密钥。</p>${button('＋ 登记凭证', 'add-credential')}</div><div class="grid compact-cards">${e.credentials.map((credential) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">♧</span>${badge('待后端接入')}</div><h3>${esc(credential.name)}</h3><p class="card-description">${esc(credential.reference)}</p><div class="card-footer"><span>凭证引用</span>${button('移除', 'remove-credential', credential.id)}</div></article>`).join('')}</div>${!e.credentials.length ? empty('尚未登记凭证', '登记凭证引用后，由后端完成安全存储与授权。') : ''}`;
@@ -1082,8 +1088,11 @@ function editDialog(kind, item = {}) {
       field('凭证引用标识', 'reference', '', '例如：credential://knowledge-reader', true);
   }
   if (kind === 'skill') {
-    title = '添加技能';
-    fields = field('技能名称', 'name', '', '例如：文案校对', true) + area('技能说明', 'description', '', 3);
+    title = item.id ? '编辑技能' : '添加技能';
+    fields =
+      field('技能名称', 'name', item.name || '', '例如：文案校对', true) +
+      area('技能简介', 'description', item.description || '', 3) +
+      area('执行说明', 'instructions', item.instructions || '', 8);
   }
   if (kind === 'publish') {
     title = '发布本地版本';
@@ -1114,6 +1123,26 @@ document.addEventListener('click', async (event) => {
     closeModal();
   }
   const { owner } = context();
+  if (action === 'initialize-ada') {
+    target.disabled = true;
+    try {
+      const result = await request('/employee-templates/ada/initialize', 'POST', {});
+      acceptServer(result);
+      history.pushState(null, '', `#employees/${result.employeeId}/identity`);
+      render();
+      toast(result.created ? 'ADA 已初始化，可查看配置并连接飞书' : 'ADA 已存在，已打开配置');
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      target.disabled = false;
+    }
+    return;
+  }
+  if (action === 'edit-skill')
+    return editDialog(
+      'skill',
+      owner.skills.find((skill) => skill.id === id),
+    );
   if (action === 'reconnect') return connectWorkspace();
   if (action === 'ma-config') return openMaConfig();
   if (action === 'retry-feishu') return openFeishu(id, true, true);
@@ -1441,8 +1470,13 @@ document.addEventListener('submit', async (event) => {
   }
   if (kind === 'skill') {
     if (!values.name) return toast('请填写技能名称');
-    if (owner.skills.some((s) => s.name === values.name)) return toast('该技能已存在');
-    owner.skills.push({ id: uid(), ...values, enabled: true });
+    if (owner.skills.some((s) => s.name === values.name && s.id !== id)) return toast('该技能已存在');
+    if (id)
+      Object.assign(
+        owner.skills.find((skill) => skill.id === id),
+        values,
+      );
+    else owner.skills.push({ id: uid(), ...values, enabled: true });
   }
   if (kind === 'credential') {
     if (!values.name || !values.reference) return toast('请填写名称与引用标识');

@@ -75,6 +75,7 @@ function validateConfiguration(employee: RecordData) {
   }
   for (const skill of records(employee.skills, '技能')) {
     text(skill.name, '技能名称');
+    text(skill.instructions, '技能执行说明', 30000, true);
     if (typeof skill.enabled !== 'boolean') throw new DomainError('技能状态无效');
   }
   for (const credential of records(employee.credentials, '凭证')) {
