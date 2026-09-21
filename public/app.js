@@ -1,972 +1,735 @@
-let state,
-  page = 'employees',
-  selectedEmployee,
-  tab = 'identity',
-  filter = '',
-  labBinding = '',
-  labThread = '',
-  labMessages = [];
-const $ = (s) => document.querySelector(s);
-const esc = (v) =>
-  String(v ?? '').replace(
-    /[&<>"']/g,
-    (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[x],
-  );
-const labels = {
-  active: '生效中',
-  conflict: '待处理冲突',
-  pending_approval: '待规则审批',
-  deleted: '已删除',
-  superseded: '已替代',
-  revoked: '已撤权',
-  scheduled: '等待空闲',
-  running: '执行中',
-  completed: '已完成',
-  paused: '权限变化 · 已暂停',
-  failed: '失败',
-  idle: '已空闲',
-  waiting: '等待授权',
-  uncertain: '待核实',
-  pending: '待升级',
-  current: '当前版本',
-  admin: '管理员',
-  project_admin: '项目管理员',
-  viewer: '只读成员',
+// 前端演示数据适配层。接入后端时替换 repository，页面不直接发送业务请求。
+const storageKey = 'workforce.frontend.v1';
+const copy = (value) => structuredClone(value);
+const uid = () => crypto.randomUUID();
+const initialEmployee = (id, name, description) => ({
+  id,
+  name,
+  description,
+  enabled: true,
+  identity: '',
+  knowledge: '',
+  rules: '',
+  skills: [],
+  memories: [],
+  environment: { name: '默认环境', model: '待配置', region: '北京', timeout: 300 },
+  credentials: [],
+  channels: { feishu: { enabled: false, appId: '' }, doubao: { enabled: false, agentId: '' } },
+  versions: [],
+  activeVersion: null,
+  updatedAt: '2026-09-21T09:00:00+08:00',
+});
+function snapshot(employee) {
+  const { versions, activeVersion, memories, updatedAt, ...configuration } = employee;
+  return copy(configuration);
+}
+function seed() {
+  const strategist = initialEmployee('brand', '品牌策略顾问', '从 Brief 到策略方案，协助团队对齐品牌方向。');
+  strategist.identity =
+    '你是一位品牌策略顾问，负责分析客户 Brief、梳理品牌定位与传播策略。清楚区分已确认决策与讨论建议。';
+  strategist.knowledge = '品牌策略方法\n从目标人群、核心价值、竞争差异三个维度形成策略。';
+  strategist.rules = '对外发布前需取得负责人确认。\n不要将项目敏感信息用于其他项目。';
+  strategist.skills = [
+    { id: 'brief', name: 'Brief 分析', description: '提取业务目标、受众与交付要求', enabled: true },
+    { id: 'research', name: '资料整理', description: '整理信息与可追溯来源', enabled: true },
+  ];
+  strategist.memories = [
+    {
+      id: 'em1',
+      title: '输出偏好',
+      content: '策略建议先给结论，再给依据和可执行动作。',
+      updatedAt: '2026-09-21T09:00:00+08:00',
+    },
+  ];
+  strategist.environment = { name: '策略协作环境', model: '由 MA 环境提供', region: '北京', timeout: 300 };
+  strategist.channels.feishu = { enabled: true, appId: 'cli_demo_brand' };
+  strategist.versions = [
+    {
+      id: 'v1',
+      number: 1,
+      note: '初始配置',
+      createdAt: '2026-09-21T09:00:00+08:00',
+      snapshot: snapshot(strategist),
+    },
+  ];
+  strategist.activeVersion = 'v1';
+  return {
+    employees: [
+      strategist,
+      initialEmployee('content', '内容创意助手', '协助构思创意、撰写内容与检查表达一致性。'),
+    ],
+    projects: [
+      {
+        id: 'launch',
+        name: '秋季品牌上市',
+        description: '统筹上市传播，沉淀团队共识与项目资料。',
+        memories: [
+          {
+            id: 'pm1',
+            title: '上市传播方向',
+            content: '以真实用户场景为核心，优先呈现产品的日常使用价值。',
+            source: '品牌项目群 · 已确认讨论',
+            updatedAt: '2026-09-21T09:15:00+08:00',
+          },
+        ],
+        groups: [
+          { id: 'g1', name: '品牌项目群', chatId: 'oc_demo_brand', employeeId: 'brand' },
+          { id: 'g2', name: '内容协作群', chatId: 'oc_demo_content', employeeId: 'content' },
+        ],
+        members: [
+          { id: 'm1', name: '项目负责人', account: 'owner@example.com', permission: 'manage' },
+          { id: 'm2', name: '内容协作者', account: 'editor@example.com', permission: 'write' },
+          { id: 'm3', name: '项目观察员', account: 'viewer@example.com', permission: 'read' },
+        ],
+      },
+    ],
+    observations: [
+      {
+        id: 'run1',
+        name: '整理上市传播建议',
+        type: 'run',
+        status: 'completed',
+        employeeId: 'brand',
+        projectId: 'launch',
+        time: '2026-09-21T09:15:00+08:00',
+        duration: '12 秒',
+        detail: '已读取项目上下文，生成传播建议。此记录为演示数据。',
+        steps: ['接收群聊请求', '加载员工配置与项目记忆', 'MA 执行完成', '回复群聊'],
+      },
+      {
+        id: 'memory1',
+        name: '更新项目共识',
+        type: 'memory',
+        status: 'completed',
+        employeeId: 'brand',
+        projectId: 'launch',
+        time: '2026-09-21T09:16:00+08:00',
+        duration: '3 秒',
+        detail: '从已确认讨论中整理 1 条项目记忆。此记录为演示数据。',
+        steps: ['会话进入空闲', '提炼确认内容', '更新项目记忆'],
+      },
+      {
+        id: 'run2',
+        name: '内容渠道连接检查',
+        type: 'run',
+        status: 'failed',
+        employeeId: 'content',
+        projectId: '',
+        time: '2026-09-21T09:20:00+08:00',
+        duration: '1 秒',
+        detail: '演示异常：尚未配置渠道标识，请在员工详情中检查渠道配置。',
+        steps: ['读取渠道配置', '渠道标识缺失，结束检查'],
+      },
+    ],
+  };
+}
+const repository = {
+  load() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+      if (saved && ['employees', 'projects', 'observations'].every((key) => Array.isArray(saved[key])))
+        return saved;
+    } catch {
+      /* 浏览器存储不可用时保留当前会话演示。 */
+    }
+    return seed();
+  },
+  save(next) {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+      return true;
+    } catch {
+      return false;
+    }
+  },
 };
-const badge = (s) =>
-  '<span class="pill ' +
-  (['active', 'completed', 'idle', 'current'].includes(s)
-    ? 'green'
-    : ['conflict', 'pending_approval', 'waiting', 'pending', 'scheduled', 'paused'].includes(s)
-      ? 'amber'
-      : s === 'failed'
-        ? 'red'
-        : '') +
-  '">' +
-  esc(labels[s] || s) +
-  '</span>';
-const date = (n) =>
-  n
-    ? new Date(n).toLocaleString('zh-CN', {
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : '—';
-const short = (id) => (id ? esc(String(id).slice(0, 8)) : '—');
-const admin = () => state?.principal.role === 'admin';
-const pname = (id) => state.projects.find((p) => p.id === id)?.name || '未绑定项目';
-const ename = (id) => state.employees.find((e) => e.id === id)?.name || id;
-function toast(text) {
-  $('#toast').textContent = text;
+let data = repository.load();
+let search = '',
+  statusFilter = 'all',
+  typeFilter = 'all',
+  dirty = false;
+const $ = (selector) => document.querySelector(selector);
+const esc = (value) =>
+  String(value ?? '').replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  );
+const date = (value) =>
+  new Date(value).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+const names = { employees: '数字员工', projects: '项目', observations: '观测' };
+const employeeTabs = {
+  basic: '基础信息',
+  identity: '身份',
+  knowledge: '知识与规则',
+  skills: '技能',
+  memories: '记忆',
+  environment: '环境',
+  credentials: '凭证',
+  channels: '飞书及豆包',
+  versions: '版本控制',
+};
+const projectTabs = { memories: '项目记忆', groups: '项目群聊', members: '成员及权限' };
+function route() {
+  const [module = 'employees', id, section] = location.hash.slice(1).split('/');
+  return { module: names[module] ? module : 'employees', id, section };
+}
+const employeeName = (id) => data.employees.find((item) => item.id === id)?.name || '未关联员工';
+const projectName = (id) => data.projects.find((item) => item.id === id)?.name || '无项目';
+const button = (label, action, id = '', primary = false) =>
+  `<button type="button" data-action="${action}" data-id="${esc(id)}" class="${primary ? 'primary' : ''}">${label}</button>`;
+const badge = (label, style = '') => `<span class="pill ${style}">${esc(label)}</span>`;
+const field = (label, name, value = '', placeholder = '', required = false) =>
+  `<label>${label}<input name="${name}" value="${esc(value)}" placeholder="${esc(placeholder)}" ${required ? 'required' : ''} maxlength="500" /></label>`;
+const area = (label, name, value = '', rows = 7) =>
+  `<label>${label}<textarea name="${name}" rows="${rows}" maxlength="30000">${esc(value)}</textarea></label>`;
+const select = (label, name, value, options) =>
+  `<label>${label}<select name="${name}">${options.map(([id, text]) => `<option value="${esc(id)}" ${id === value ? 'selected' : ''}>${esc(text)}</option>`).join('')}</select></label>`;
+const panel = (heading, description, body) =>
+  `<section class="panel"><h3>${heading}</h3>${description ? `<p class="muted">${description}</p>` : ''}${body}</section>`;
+const empty = (title, description) =>
+  `<div class="empty"><div class="symbol">◇</div><h3>${title}</h3><p>${description}</p></div>`;
+const head = (title, description, action = '') =>
+  `<div class="page-head"><div><h1>${esc(title)}</h1><p>${esc(description)}</p></div><div class="actions">${action}</div></div>`;
+const saveBar = () =>
+  '<div class="actions form-actions"><small id="save-state">配置仅保存到当前浏览器</small><button class="primary" type="submit">保存配置</button></div>';
+function toast(message) {
+  if ($('#modal').open && $('#dialog-feedback')) {
+    $('#dialog-feedback').textContent = message;
+    return;
+  }
+  $('#toast').textContent = message;
   $('#toast').hidden = false;
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => ($('#toast').hidden = true), 5500);
+  toast.timer = setTimeout(() => {
+    $('#toast').hidden = true;
+  }, 3500);
 }
-async function api(path, body) {
-  const r = await fetch('/api' + path, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const v = await r.json();
-  if (!r.ok) {
-    if (r.status === 401) showLogin();
-    throw new Error(v.error || '操作失败');
-  }
-  return v;
-}
-function showLogin() {
-  $('#login').hidden = false;
-  $('#app').hidden = true;
-}
-async function refresh() {
-  state = await api('/state');
-  $('#login').hidden = true;
-  $('#app').hidden = false;
-  $('#principal').textContent = state.principal.id + ' · ' + labels[state.principal.role];
+function commit(message) {
+  const persisted = repository.save(data);
+  dirty = false;
   render();
+  toast(persisted ? message + '（前端演示）' : '当前会话已更新，但浏览器无法持久保存');
 }
-const button = (label, action, id = '', primary = false) =>
-  '<button ' +
-  (primary ? 'class="primary" ' : '') +
-  'data-action="' +
-  action +
-  '" data-id="' +
-  esc(id) +
-  '">' +
-  label +
-  '</button>';
-const title = (k, h, d, action = '') =>
-  '<div class="page-head"><div><p class="eyebrow">' +
-  k +
-  '</p><h1>' +
-  h +
-  '</h1><p>' +
-  d +
-  '</p></div>' +
-  action +
-  '</div>';
-const empty = (h, d) =>
-  '<div class="empty"><div class="symbol">◇</div><h3>' + h + '</h3><p>' + d + '</p></div>';
-const opt = (items, selected) =>
-  items
-    .map(
-      (x) =>
-        '<option value="' +
-        esc(x.id) +
-        '" ' +
-        (x.id === selected ? 'selected' : '') +
-        '>' +
-        esc(x.name) +
-        '</option>',
-    )
-    .join('');
-const field = (label, name, value = '', placeholder = '', readonly = false) =>
-  '<label>' +
-  label +
-  '<input name="' +
-  name +
-  '" value="' +
-  esc(value) +
-  '" placeholder="' +
-  esc(placeholder) +
-  '" ' +
-  (readonly ? 'readonly' : '') +
-  '></label>';
-const area = (label, name, value = '', rows = 6) =>
-  '<label>' +
-  label +
-  '<textarea name="' +
-  name +
-  '" rows="' +
-  rows +
-  '" ' +
-  (!admin() ? 'readonly' : '') +
-  '>' +
-  esc(value) +
-  '</textarea></label>';
-const stat = (label, value, note) =>
-  '<div class="stat"><small>' + label + '</small><strong>' + value + '</strong><p>' + note + '</p></div>';
-function render() {
-  page = location.hash.slice(1) || 'employees';
-  if (!['employees', 'projects', 'memories', 'jobs', 'lab'].includes(page)) page = 'employees';
-  document
-    .querySelectorAll('[data-nav]')
-    .forEach((a) => a.classList.toggle('active', a.dataset.nav === page));
-  $('#breadcrumb').textContent =
-    '工作空间 / ' +
-    {
-      employees: '数字员工',
-      projects: '项目与群聊',
-      memories: '项目记忆',
-      jobs: '运行与后台任务',
-      lab: '本地验收室',
-    }[page];
-  $('#content').innerHTML = {
-    employees: employees,
-    projects: projects,
-    memories: memories,
-    jobs: jobs,
-    lab: lab,
-  }[page]();
-}
-function employees() {
-  if (selectedEmployee) return employee();
-  return (
-    title(
-      'YOUR DIGITAL TEAM',
-      '数字员工',
-      '定义清晰的职责，让每位数字员工带着统一规则参与协作。',
-      admin() ? button('＋ 创建数字员工', 'new-employee', '', true) : '',
-    ) +
-    '<div class="stats">' +
-    stat('数字员工', state.employees.length, '由管理员统一维护') +
-    stat('已发布员工', state.employees.filter((e) => e.releaseId).length, '身份与知识固定为发布快照') +
-    stat('服务项目', state.projects.length, '跨群共享经过授权的记忆') +
-    stat(
-      '有效项目记忆',
-      state.memories.filter((m) => m.status === 'active').length,
-      '保留确认来源与修订记录',
-    ) +
-    '</div><div class="toolbar"><h3>团队成员 <span class="count">' +
-    state.employees.length +
-    '</span></h3><input class="search" id="employee-search" placeholder="搜索员工名称…" aria-label="搜索员工"></div><div class="grid">' +
-    state.employees
-      .map(
-        (e) =>
-          '<article class="employee-card" data-name="' +
-          esc(e.name) +
-          '"><div class="card-top"><div class="employee-icon">◈</div>' +
-          badge(e.releaseId ? 'active' : '草稿') +
-          '</div><h3>' +
-          esc(e.name) +
-          '</h3><p class="desc">' +
-          esc(
-            (e.draft || state.releases.find((r) => r.id === e.releaseId)?.content)?.identity ||
-              '尚未配置工作职责',
-          ) +
-          '</p><div class="card-meta"><span>▦ ' +
-          state.bindings.filter((b) => b.employeeId === e.id && b.active).length +
-          ' 个群聊</span><span>◷ ' +
-          state.releases.filter((r) => r.employeeId === e.id).length +
-          ' 个版本</span></div><div class="card-bottom"><span class="muted">' +
-          (e.releaseId
-            ? '已发布 v' + state.releases.find((r) => r.id === e.releaseId)?.version
-            : '等待首次发布') +
-          '</span>' +
-          button('管理详情 →', 'employee', e.id) +
-          '</div></article>',
-      )
-      .join('') +
-    (admin()
-      ? '<button class="add-card" data-action="new-employee"><strong>＋</strong><span>创建新的数字员工</span><small>从身份与职责开始</small></button>'
-      : '') +
-    '</div><div class="info-banner"><span>ⓘ</span><div><b>一致的全局规则，可控的项目记忆</b><p>Identity 与 Knowledge 只能由管理员发布。业务聊天不能改写规则，也不能授予访问权限。</p></div></div>'
-  );
-}
-function employee() {
-  const e = state.employees.find((x) => x.id === selectedEmployee);
-  if (!e) {
-    selectedEmployee = null;
-    return employees();
-  }
-  const releases = state.releases.filter((r) => r.employeeId === e.id).reverse(),
-    active = releases.find((r) => r.id === e.releaseId),
-    c = e.draft || active?.content || {};
-  let editor = '';
-  if (tab === 'versions')
-    editor =
-      '<div class="panel"><h3>不可变发布历史</h3><p class="muted">切回已有快照不会修改历史版本；不安全的原 Session 更新会显示待升级。</p>' +
-      releases
-        .map(
-          (r) =>
-            '<div class="list-item"><div class="memory-header"><b>发布版本 v' +
-            r.version +
-            '</b>' +
-            badge(r.id === e.releaseId ? 'active' : '历史版本') +
-            '</div><p>' +
-            date(r.createdAt) +
-            ' · 发布人 ' +
-            esc(r.publishedBy) +
-            ' · Agent ' +
-            esc(r.content.agentVersion || '待配置') +
-            '</p><div class="actions">' +
-            button('与当前草稿对比', 'compare', r.id) +
-            (admin() && r.id !== e.releaseId ? button('切回此版本', 'activate', r.id) : '') +
-            '</div></div>',
-        )
-        .join('') +
-      (!releases.length ? empty('尚未发布', '完成身份与知识后发布第一版。') : '') +
-      '</div>';
-  else
-    editor =
-      '<form id="draft-form" class="config-form"><section class="panel"><div class="memory-header"><h3>' +
-      (tab === 'identity' ? '员工身份 · Identity' : '全局知识 · Knowledge') +
-      '</h3><span class="pill">草稿修订 ' +
-      e.revision +
-      '</span></div><p class="muted">' +
-      (tab === 'identity'
-        ? '业务身份与真实 Bot 身份分开；应用凭据由独立配置和 Vault 管理。'
-        : '强制规则每轮固定加载；参考知识按当前问题匹配。') +
-      '</p>' +
-      (tab === 'identity'
-        ? area('身份、职责与能力边界', 'identity', c.identity, 8) +
-          '</section><section class="panel"><h3>MA 配置</h3><p class="muted">设置员工使用的 Agent 与版本。</p><div class="form-grid">' +
-          field('MA Agent ID', 'agentId', c.agentId, '真实测试 Agent ID', !admin()) +
-          field('固定 Agent 版本', 'agentVersion', c.agentVersion, '例如 1', !admin()) +
-          '<div class="full">' +
-          field('Skills / Tools 修订标识', 'skillsToolsRevision', c.skillsToolsRevision, '', !admin()) +
-          '</div></div>'
-        : area('强制规则 · 每轮必须生效', 'rules', c.rules, 6) +
-          area('参考知识 · 空行分段，按需读取', 'knowledge', c.knowledge, 9)) +
-      '</section>' +
-      (admin()
-        ? '<div class="actions form-actions"><small>保存不会影响已发布版本</small><button type="button" data-action="preview-draft">预览草稿快照</button><button class="primary">保存草稿</button></div>'
-        : '') +
-      '</form>';
-  return (
-    '<a class="back" href="#employees" data-action="back">← 返回数字员工</a>' +
-    title(
-      'EMPLOYEE PROFILE',
-      esc(e.name),
-      '管理身份、规则与发布版本。',
-      admin() ? button('发布当前草稿', 'publish', '', true) : '',
-    ) +
-    '<div class="employee-summary"><span>状态<b>' +
-    (active ? '已发布' : '草稿') +
-    '</b></span><span>版本<b>' +
-    (active ? 'v' + active.version : '未发布') +
-    '</b></span><span>关联群聊<b>' +
-    state.bindings.filter((b) => b.employeeId === e.id && b.active).length +
-    '</b></span><span>草稿修订<b>' +
-    e.revision +
-    '</b></span></div><div class="tabs">' +
-    [
-      ['identity', '身份与职责'],
-      ['knowledge', '知识与强制规则'],
-      ['versions', '发布与版本'],
-    ]
-      .map(
-        ([id, label]) =>
-          '<button data-action="tab" data-id="' +
-          id +
-          '" class="' +
-          (tab === id ? 'active' : '') +
-          '">' +
-          label +
-          '</button>',
-      )
-      .join('') +
-    '</div><div class="employee-layout"><div>' +
-    editor +
-    '</div><div class="employee-support"><div class="panel"><h3>当前服务版本</h3><div class="badge-row">' +
-    badge(active ? 'active' : '未发布') +
-    '<span class="pill">' +
-    (active ? 'v' + active.version : '—') +
-    '</span></div><p class="muted">' +
-    (active ? 'Identity、Knowledge 与工具配置已保存为同一快照。' : '尚无发布快照，业务执行会被服务端阻止。') +
-    '</p><div class="meta-list"><span>员工 ID</span><strong>' +
-    short(e.id) +
-    '</strong><span>发布时间</span><strong>' +
-    date(active?.createdAt) +
-    '</strong><span>真实 Bot</span><strong>独立配置启停</strong></div></div><div class="panel"><h3>关联群聊</h3>' +
-    state.bindings
-      .filter((b) => b.employeeId === e.id)
-      .map(
-        (b) =>
-          '<div class="list-item"><b>' +
-          esc(b.chatId) +
-          '</b><p>' +
-          esc(pname(b.projectId)) +
-          ' · ' +
-          (b.releaseId ? '指定版本' : '跟随员工发布') +
-          '</p></div>',
-      )
-      .join('') +
-    '<a href="#projects">前往项目管理 →</a></div></div></div>'
-  );
-}
-function projects() {
-  return (
-    title(
-      'PROJECT WORKSPACE',
-      '项目与群聊',
-      '一个项目关联多个群聊；共享范围需双方明确配置。',
-      admin() ? button('＋ 创建项目', 'new-project', '', true) : '',
-    ) +
-    state.projects
-      .map(
-        (p) =>
-          '<section class="panel"><div class="memory-header"><div><h3>' +
-          esc(p.name) +
-          '</h3><small>项目修订 ' +
-          p.revision +
-          ' · 管理员 ' +
-          esc(p.managers.join('、') || '系统管理员') +
-          '</small></div><div class="actions">' +
-          badge(p.extractionEnabled ? '自动提炼已开启' : '自动提炼已关闭') +
-          button('项目设置', 'project-edit', p.id) +
-          button('绑定群聊', 'bind', p.id, true) +
-          '</div></div><div class="table-wrap"><table><thead><tr><th>群聊 ID</th><th>数字员工</th><th>允许共享的群</th><th>发布策略</th><th>状态</th><th></th></tr></thead><tbody>' +
-          state.bindings
-            .filter((b) => b.projectId === p.id)
-            .map(
-              (b) =>
-                '<tr><td>' +
-                esc(b.chatId) +
-                '<small>绑定修订 ' +
-                b.revision +
-                '</small></td><td>' +
-                esc(ename(b.employeeId)) +
-                '</td><td>' +
-                esc(b.sharedWith.join('、') || '仅来源群') +
-                '</td><td>' +
-                (b.releaseId
-                  ? '指定 v' + state.releases.find((r) => r.id === b.releaseId)?.version
-                  : '跟随员工当前发布') +
-                '</td><td>' +
-                badge(b.active ? 'active' : '已解绑') +
-                '</td><td>' +
-                button('编辑', 'edit-binding', b.id) +
-                '</td></tr>',
-            )
-            .join('') +
-          '</tbody></table></div>' +
-          (!state.bindings.some((b) => b.projectId === p.id)
-            ? empty('添加第一个群聊', '指定员工和群 ID，再设置可分享范围。')
-            : '') +
-          '</section>',
-      )
-      .join('') +
-    (!state.projects.length ? empty('从一个项目开始', '创建项目后，可配置群聊与记忆权限。') : '') +
-    '<div class="info-banner"><span>ⓘ</span><div><b>项目归属不等于共享权限</b><p>跨群读取需要来源与目标群相互授权。未配置时只对来源群可见。群换绑或撤权会暂停旧后台任务。</p></div></div>'
-  );
-}
-function memories() {
-  const list = state.memories
-    .filter((m) => !filter || m.projectId === filter)
-    .slice()
-    .reverse();
-  return (
-    title('PROJECT MEMORY', '项目记忆', '有来源、有范围、可纠正。只保留后续协作需要的事实与约定。') +
-    '<div class="filter"><select id="memory-filter"><option value="">全部获授权项目</option>' +
-    opt(state.projects, filter) +
-    '</select><span class="count">' +
-    list.length +
-    ' 条记忆</span>' +
-    button('登记长期资料', 'resource') +
-    '</div>' +
-    list
-      .map(
-        (m) =>
-          '<article class="panel memory-card ' +
-          (m.status === 'conflict' ? 'conflict' : '') +
-          '"><div class="memory-header"><h3>' +
-          esc(m.key) +
-          '</h3>' +
-          badge(m.status) +
-          '</div><p class="memory-value">' +
-          esc(m.value) +
-          '</p><div class="source-line">' +
-          esc(pname(m.projectId)) +
-          ' · 来源 ' +
-          m.sourceIds.length +
-          ' 条 · 可见群 ' +
-          esc(m.audiences.join('、')) +
-          ' · 修订 ' +
-          m.revision +
-          ' · ' +
-          date(m.createdAt) +
-          '</div><div class="actions">' +
-          button('查看来源', 'sources', m.id) +
-          (!['deleted', 'superseded', 'revoked'].includes(m.status)
-            ? button('纠正', 'correct', m.id) +
-              button('删除', 'delete-memory', m.id) +
-              (m.status === 'conflict' ? button('确认采用此条', 'resolve', m.id, true) : '') +
-              (m.status === 'pending_approval' ? button('审批项目规则', 'approve', m.id, true) : '')
-            : '') +
-          '</div></article>',
-      )
-      .join('') +
-    (!list.length
-      ? empty(
-          '项目经验将在这里积累',
-          '在验收室发送“确认决策：交付日期=10月15日”，连续空闲至少 30 秒后查看结果。',
-        )
-      : '') +
-    '<div class="panel"><h3>长期资料索引</h3><p class="muted">登记权限受控的长期地址，不复制文件字节；远端撤权后应在这里立即撤销。</p>' +
-    state.resources
-      .map(
-        (r) =>
-          '<div class="list-item"><b>' +
-          esc(r.name) +
-          '</b> ' +
-          badge(r.active ? 'active' : 'revoked') +
-          '<p>' +
-          esc(r.uri) +
-          '</p>' +
-          (r.active ? button('撤销资料访问', 'revoke-resource', r.id) : '') +
-          '</div>',
-      )
-      .join('') +
-    '</div>'
-  );
-}
-function jobs() {
-  return (
-    title(
-      'RUNTIME & OBSERVABILITY',
-      '运行与后台任务',
-      '区分提炼完成、记忆提交和后续可见；会话空闲并不等于业务成功。',
-    ) +
-    '<div class="stats">' +
-    stat('等待整理', state.jobs.filter((j) => j.state === 'scheduled').length, '空闲 30 秒后开始') +
-    stat('已提交任务', state.jobs.filter((j) => j.state === 'completed').length, '事务提交与游标同步') +
-    stat(
-      '需关注',
-      state.jobs.filter((j) => ['failed', 'paused'].includes(j.state)).length,
-      '失败或权限发生变化',
-    ) +
-    stat('业务轮次', state.turns.length, '最近 100 条') +
-    '</div><div class="panel"><h3>Bot 运行状态</h3>' +
-    (state.runtimes?.length
-      ? state.runtimes
-          .map(
-            (r) =>
-              '<div class="list-item"><b>' +
-              esc(ename(r.employeeId)) +
-              '</b> ' +
-              badge(r.state === 'running' && Date.now() - r.heartbeat > 20000 ? '心跳已过期' : r.state) +
-              '<p>独立应用 ' +
-              esc(r.appId) +
-              ' · 最近心跳 ' +
-              date(r.heartbeat) +
-              '</p></div>',
-          )
-          .join('')
-      : '<p class="muted">真实 Bot 尚未启动。使用独立配置和命令显式启动。</p>') +
-    (state.upgrades || [])
-      .filter((u) => u.state === 'pending')
-      .map(
-        (u) =>
-          '<div class="info-banner">' +
-          badge('pending') +
-          ' ' +
-          esc(u.reason) +
-          '；显式 /new 后应用新版，文件不会自动迁移。</div>',
-      )
-      .join('') +
-    '</div><div class="panel"><h3>后台增量任务</h3><div class="table-wrap"><table><thead><tr><th>任务 / 项目</th><th>状态</th><th>事件范围</th><th>最早执行</th><th>结果</th></tr></thead><tbody>' +
-    state.jobs
-      .slice()
-      .reverse()
-      .map(
-        (j) =>
-          '<tr><td>' +
-          short(j.id) +
-          '<small>' +
-          esc(pname(j.projectId)) +
-          '</small></td><td>' +
-          badge(j.state) +
-          '</td><td>' +
-          j.sourceIds.length +
-          ' 个轮次</td><td>' +
-          date(j.dueAt) +
-          '</td><td>' +
-          (j.state === 'completed'
-            ? '提交 ' +
-              j.count +
-              ' 条 · 耗时 ' +
-              Math.max(0, Math.round((j.completedAt - j.createdAt) / 1000)) +
-              ' 秒'
-            : '重试 ' + j.retries + '/3') +
-          '<small>' +
-          esc(j.error || '') +
-          '</small>' +
-          (j.state === 'failed' ? button('重试', 'retry-job', j.id) : '') +
-          '</td></tr>',
-      )
-      .join('') +
-    '</tbody></table></div>' +
-    (!state.jobs.length ? empty('暂无后台任务', '群聊轮次结束后，后台将持久化增量提炼任务。') : '') +
-    '</div><div class="panel"><h3>最近业务轮次</h3><div class="table-wrap"><table><thead><tr><th>群 / 话题</th><th>状态</th><th>实际发布版本</th><th>记忆修订</th><th>时间</th></tr></thead><tbody>' +
-    state.turns
-      .slice()
-      .reverse()
-      .map(
-        (t) =>
-          '<tr><td>' +
-          esc(t.chatId) +
-          '<small>' +
-          esc(t.threadId || '群公共 Session') +
-          '</small></td><td>' +
-          badge(t.state) +
-          '</td><td>' +
-          short(t.releaseId) +
-          '<small>' +
-          short(t.sessionId) +
-          '</small></td><td>' +
-          t.memoryRevision +
-          '</td><td>' +
-          date(t.createdAt) +
-          '</td></tr>',
-      )
-      .join('') +
-    '</tbody></table></div></div>'
-  );
-}
-function lab() {
-  const bindings = state.bindings.filter((b) => b.active);
-  return (
-    title(
-      'LOCAL ACCEPTANCE LAB',
-      '本地验收室',
-      '通过真实 Gateway 验证项目路由、版本与记忆。响应来自本地适配器。',
-    ) +
-    '<div class="info-banner"><span>◎</span><div><b>当前没有调用 MA 或飞书</b><p>这里验证后端行为，不能替代真实 Bot 联调。使用“确认决策：交付日期=10月15日”；空闲 30 秒后换到获准共享的群提问。</p></div></div><div class="two-cols"><div class="panel"><div class="lab-chat">' +
-    (labMessages.length
-      ? labMessages
-          .map(
-            (m) =>
-              '<div class="bubble ' +
-              (m.role === 'user' ? 'user' : '') +
-              '"><small>' +
-              (m.role === 'user' ? '你 · ' + esc(m.chat) : '本地验收适配器') +
-              '</small>' +
-              esc(m.text) +
-              '</div>',
-          )
-          .join('')
-      : empty('从一条明确的决策开始', '消息会真实进入 Gateway 队列、写入本地轮次记录。')) +
-    '</div><form id="lab-form"><div class="form-grid"><label>群聊<select name="binding" required>' +
-    bindings
-      .map(
-        (b) =>
-          '<option value="' +
-          esc(b.id) +
-          '" ' +
-          (b.id === labBinding ? 'selected' : '') +
-          '>' +
-          esc(b.chatId) +
-          ' · ' +
-          esc(ename(b.employeeId)) +
-          '</option>',
-      )
-      .join('') +
-    '</select></label>' +
-    field('话题 ID（选填）', 'threadId', labThread, '留空为群公共 Session') +
-    '</div><label>消息<textarea name="text" required rows="3" placeholder="确认决策：交付日期=10月15日"></textarea></label><button class="primary" ' +
-    (!bindings.length ? 'disabled' : '') +
-    '>发送验收消息</button></form></div><div class="panel"><h3>建议验收步骤</h3>' +
-    [
-      ['01 · 创建与发布', '创建员工并发布身份与知识快照。'],
-      ['02 · 配置两个群', '例如 internal-a 与 internal-b，将彼此加入共享范围。'],
-      ['03 · 确认与等待', '在 A 确认决策，连续空闲至少 30 秒。'],
-      ['04 · 跨群读取', '切到 B 提问，检查记忆与来源。'],
-      ['05 · 边界检查', '添加未授权群、修改共享范围、制造冲突或发送 /new。'],
-    ]
-      .map(([h, d]) => '<div class="list-item"><b>' + h + '</b><p>' + d + '</p></div>')
-      .join('') +
-    '</div></div>'
-  );
-}
-function modal(html) {
-  $('#modal-content').innerHTML = html;
+function modal(title, body) {
+  $('#modal-content').innerHTML =
+    `<h2 id="modal-title">${esc(title)}</h2>${body}<p id="dialog-feedback" class="error" role="alert"></p>`;
   $('#modal').showModal();
 }
-function bindingModal(projectId, b) {
-  const p = state.projects.find((p) => p.id === projectId);
-  modal(
-    '<h2>' +
-      (b ? '编辑群聊绑定' : '绑定群聊') +
-      ' · ' +
-      esc(p.name) +
-      '</h2><p class="muted">共享需要双方授权。修改后旧任务暂停，原 Session 可能需要显式 /new。</p><form id="binding-form"><input type="hidden" name="projectId" value="' +
-      p.id +
-      '"><input type="hidden" name="revision" value="' +
-      (b?.revision || '') +
-      '"><label>数字员工<select name="employeeId" ' +
-      (b ? 'disabled' : '') +
-      '>' +
-      opt(state.employees, b?.employeeId) +
-      '</select></label>' +
-      field('群聊 ID', 'chatId', b?.chatId || '', 'oc_… 或本地验收群 ID', !!b) +
-      field(
-        '允许共享的群 ID（逗号分隔）',
-        'sharedWith',
-        b?.sharedWith.join(', ') || '',
-        '未配置时仅来源群可见',
-      ) +
-      (admin()
-        ? '<label>指定发布版本<select name="releaseId"><option value="">跟随员工当前发布</option>' +
-          state.releases
-            .map(
-              (r) =>
-                '<option value="' +
-                r.id +
-                '" ' +
-                (b?.releaseId === r.id ? 'selected' : '') +
-                '>' +
-                esc(ename(r.employeeId)) +
-                ' · v' +
-                r.version +
-                '</option>',
-            )
-            .join('') +
-          '</select></label>'
-        : '') +
-      '<label class="checkbox-label"><input type="checkbox" name="active" ' +
-      (b?.active === false ? '' : 'checked') +
-      '>启用此绑定</label><button class="primary">保存绑定</button></form>',
+function closeModal() {
+  $('#modal').close();
+}
+function tabs(module, id, items, active) {
+  return `<nav class="detail-tabs" aria-label="详情导航">${Object.entries(items)
+    .map(
+      ([key, label]) =>
+        `<a href="#${module}/${id}/${key}" class="${active === key ? 'active' : ''}" ${active === key ? 'aria-current="page"' : ''}>${label}</a>`,
+    )
+    .join('')}</nav>`;
+}
+function render() {
+  const { module, id, section } = route();
+  document.querySelectorAll('[data-nav]').forEach((link) => {
+    link.classList.toggle('active', link.dataset.nav === module);
+    if (link.dataset.nav === module) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
+  $('#breadcrumb').textContent = `工作空间 / ${names[module]}`;
+  if (module === 'employees' && id) {
+    const employee = data.employees.find((item) => item.id === id);
+    $('#content').innerHTML = employee
+      ? employeeDetail(employee, employeeTabs[section] ? section : 'basic')
+      : empty('员工不存在', '请从数字员工列表重新选择。');
+  } else if (module === 'projects' && id) {
+    const project = data.projects.find((item) => item.id === id);
+    $('#content').innerHTML = project
+      ? projectDetail(project, projectTabs[section] ? section : 'memories')
+      : empty('项目不存在', '请从项目列表重新选择。');
+  } else {
+    $('#content').innerHTML = module === 'observations' ? observations() : overview(module);
+  }
+  applyFilters();
+}
+function overview(module) {
+  const employees = module === 'employees';
+  const items = employees ? data.employees : data.projects;
+  return (
+    head(
+      names[module],
+      employees ? '配置数字员工，让能力在项目中复用。' : '连接群聊与成员，沉淀共同的项目记忆。',
+      button(employees ? '＋ 创建员工' : '＋ 创建项目', employees ? 'new-employee' : 'new-project', '', true),
+    ) +
+    `<div class="toolbar"><span class="muted">共 ${items.length} ${employees ? '位员工' : '个项目'}</span><input id="search" class="search" aria-label="搜索${names[module]}" placeholder="搜索${names[module]}…" value="${esc(search)}" /></div><div class="grid compact-cards">` +
+    items
+      .map(
+        (item) =>
+          `<article class="entity-card" data-search="${esc(item.name + ' ' + item.description)}"><div class="card-top"><span class="entity-icon">${employees ? '◈' : '▦'}</span>${employees ? badge(item.activeVersion ? '已发布' : '草稿', item.activeVersion ? 'green' : '') : badge(`${item.groups.length} 个群聊`)}</div><h3><a href="#${module}/${item.id}">${esc(item.name)}</a></h3><p class="card-description">${esc(item.description || '暂无描述')}</p><div class="card-footer"><span>${employees ? `${item.skills.filter((s) => s.enabled).length} 项技能 · ${item.memories.length} 条记忆` : `${item.memories.length} 条记忆 · ${item.members.length} 位成员`}</span><a href="#${module}/${item.id}" aria-label="查看${esc(item.name)}">查看详情 →</a></div></article>`,
+      )
+      .join('') +
+    `</div><div id="filter-empty" hidden>${empty('没有匹配结果', '换个关键词试试。')}</div>`
   );
 }
-document.addEventListener('click', async (event) => {
-  const b = event.target.closest('[data-action]');
-  if (!b) return;
+function employeeDetail(e, section) {
+  let content;
+  if (section === 'basic')
+    content = panel(
+      '基础信息',
+      '用于识别员工及其服务范围。',
+      `<div class="form-grid">${field('名称', 'name', e.name, '输入员工名称', true)}${select(
+        '状态',
+        'enabled',
+        String(e.enabled),
+        [
+          ['true', '启用'],
+          ['false', '停用'],
+        ],
+      )}<div class="full">${area('描述', 'description', e.description, 3)}</div></div>`,
+    );
+  if (section === 'identity')
+    content = panel(
+      '身份',
+      '定义员工的角色、职责与能力边界。',
+      area('身份提示词', 'identity', e.identity, 12),
+    );
+  if (section === 'knowledge')
+    content =
+      panel('知识', '员工跨项目可复用的参考知识。', area('参考知识', 'knowledge', e.knowledge, 8)) +
+      panel('规则', '约定员工必须遵守的行为与输出要求。', area('行为规则', 'rules', e.rules, 6));
+  if (section === 'environment')
+    content = panel(
+      '运行环境',
+      '仅演示环境配置，实际可选项由后端提供。',
+      `<div class="form-grid">${field('环境名称', 'name', e.environment.name)}${field('模型', 'model', e.environment.model)}${select(
+        '区域',
+        'region',
+        e.environment.region,
+        [
+          ['北京', '北京'],
+          ['上海', '上海'],
+        ],
+      )}<label>运行超时（秒）<input type="number" name="timeout" min="30" max="3600" value="${e.environment.timeout}" required /></label></div>`,
+    );
+  if (section === 'channels')
+    content = ['feishu', 'doubao']
+      .map((key) => {
+        const channel = e.channels[key];
+        const feishu = key === 'feishu';
+        return panel(
+          feishu ? '飞书' : '豆包',
+          '仅保存接入配置，不建立真实连接。',
+          `<div class="form-grid">${select('接入状态', key + 'Enabled', String(channel.enabled), [
+            ['false', '未启用'],
+            ['true', '启用'],
+          ])}${field(feishu ? '飞书 App ID' : '豆包 Agent ID', feishu ? 'appId' : 'agentId', feishu ? channel.appId : channel.agentId, '填写渠道标识')}</div>`,
+        );
+      })
+      .join('');
+  if (section === 'skills')
+    content = `<div class="section-toolbar"><p class="muted">配置员工可以使用的技能。</p>${button('＋ 添加技能', 'add-skill')}</div><div class="grid compact-cards">${e.skills.map((skill) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◇</span>${badge(skill.enabled ? '已启用' : '已停用', skill.enabled ? 'green' : '')}</div><h3>${esc(skill.name)}</h3><p class="card-description">${esc(skill.description)}</p><div class="actions">${button(skill.enabled ? '停用' : '启用', 'toggle-skill', skill.id)}${button('移除', 'remove-skill', skill.id)}</div></article>`).join('')}</div>${!e.skills.length ? empty('暂无技能', '添加技能，为员工扩展能力。') : ''}`;
+  if (section === 'memories') content = memoryList(e, false);
+  if (section === 'credentials')
+    content = `<div class="section-toolbar"><p class="muted">仅登记凭证名称和引用标识，不接收或保存密钥。</p>${button('＋ 登记凭证', 'add-credential')}</div><div class="grid compact-cards">${e.credentials.map((credential) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">♧</span>${badge('待后端接入')}</div><h3>${esc(credential.name)}</h3><p class="card-description">${esc(credential.reference)}</p><div class="card-footer"><span>凭证引用</span>${button('移除', 'remove-credential', credential.id)}</div></article>`).join('')}</div>${!e.credentials.length ? empty('尚未登记凭证', '登记凭证引用后，由后端完成安全存储与授权。') : ''}`;
+  if (section === 'versions')
+    content = `<div class="section-toolbar"><p class="muted">保存当前配置快照，演示发布与版本切换。</p>${button('发布版本', 'publish', '', true)}</div><div class="version-stack">${[
+      ...e.versions,
+    ]
+      .reverse()
+      .map(
+        (version) =>
+          `<article class="panel version-card"><div><h3>v${version.number} ${version.id === e.activeVersion ? badge('当前版本', 'green') : ''}</h3><p class="muted">${esc(version.note)} · ${date(version.createdAt)}</p></div><div class="actions">${button('查看配置', 'view-version', version.id)}${version.id !== e.activeVersion ? button('切换到此版本', 'activate-version', version.id) : ''}</div></article>`,
+      )
+      .join('')}</div>${!e.versions.length ? empty('暂无版本', '完成员工配置后，发布第一个演示版本。') : ''}`;
+  const editable = ['basic', 'identity', 'knowledge', 'environment', 'channels'].includes(section);
+  return (
+    `<a class="back" href="#employees">← 数字员工</a>` +
+    head(
+      e.name,
+      e.description || '完善员工配置',
+      badge(e.enabled ? '启用' : '停用', e.enabled ? 'green' : ''),
+    ) +
+    `<div class="employee-summary"><span>版本<b>${e.activeVersion ? 'v' + e.versions.find((v) => v.id === e.activeVersion)?.number : '未发布'}</b></span><span>技能<b>${e.skills.filter((s) => s.enabled).length}</b></span><span>记忆<b>${e.memories.length}</b></span></div>` +
+    tabs('employees', e.id, employeeTabs, section) +
+    (editable
+      ? `<form id="employee-form" data-section="${section}" class="config-form">${content}${saveBar()}</form>`
+      : content)
+  );
+}
+function memoryList(owner, project) {
+  return `<div class="section-toolbar"><p class="muted">${project ? '团队共同维护的项目事实与共识。' : '员工持续积累的偏好与经验。'}</p>${button('＋ 添加记忆', 'add-memory', '', true)}</div><div class="memory-grid">${owner.memories.map((memory) => `<article class="panel"><div class="memory-header"><h3>${esc(memory.title)}</h3><div class="actions">${button('编辑', 'edit-memory', memory.id)}${button('删除', 'delete-memory', memory.id)}</div></div><p class="memory-body">${esc(memory.content)}</p><div class="card-footer"><span>${esc(memory.source || '手动维护')}</span><span>${date(memory.updatedAt)}</span></div></article>`).join('')}</div>${!owner.memories.length ? empty('暂无记忆', project ? '记录已确认的项目事实，供团队协作使用。' : '添加员工的长期偏好与经验。') : ''}`;
+}
+function projectDetail(p, section) {
+  let content = '';
+  if (section === 'memories') content = memoryList(p, true);
+  if (section === 'groups')
+    content = `<div class="section-toolbar"><p class="muted">维护项目关联群聊，并指定服务员工。</p>${button('＋ 关联群聊', 'add-group', '', true)}</div><div class="grid compact-cards">${p.groups.map((group) => `<article class="entity-card"><span class="entity-icon">▦</span><h3>${esc(group.name)}</h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">数字员工 · ${esc(employeeName(group.employeeId))}</p><div class="actions">${button('编辑', 'edit-group', group.id)}${button('解除关联', 'remove-group', group.id)}</div></article>`).join('')}</div>${!p.groups.length ? empty('尚未关联群聊', '将群聊关联到项目，组织项目协作。') : ''}`;
+  if (section === 'members')
+    content = `<div class="section-toolbar"><p class="muted">管理谁可以查看、改写记忆，以及维护成员。</p>${button('＋ 添加成员', 'add-member', '', true)}</div><div class="permission-legend"><span><b>查看</b> 只读项目记忆</span><span><b>改写</b> 可新增、编辑和删除记忆</span><span><b>管理</b> 改写记忆及管理成员</span></div><p class="demo-note">这里演示权限配置；实际鉴权由后端执行。</p><div class="grid compact-cards">${p.members.map((member) => `<article class="entity-card"><div class="card-top"><span class="member-avatar">${esc(member.name.slice(0, 1))}</span>${badge({ read: '查看', write: '改写', manage: '管理' }[member.permission])}</div><h3>${esc(member.name)}</h3><p class="card-description">${esc(member.account)}</p><div class="actions">${button('修改权限', 'edit-member', member.id)}${button('移除', 'remove-member', member.id)}</div></article>`).join('')}</div>`;
+  return (
+    '<a class="back" href="#projects">← 项目</a>' +
+    head(p.name, p.description, button('编辑项目', 'edit-project')) +
+    `<div class="employee-summary"><span>项目记忆<b>${p.memories.length}</b></span><span>群聊<b>${p.groups.length}</b></span><span>成员<b>${p.members.length}</b></span></div>` +
+    tabs('projects', p.id, projectTabs, section) +
+    content
+  );
+}
+function observations() {
+  const rows = data.observations;
+  return (
+    head('观测', '查看员工运行与记忆任务，定位异常。') +
+    `<div class="stats observation-stats">${[
+      ['总记录', rows.length],
+      ['已完成', rows.filter((r) => r.status === 'completed').length],
+      ['待关注', rows.filter((r) => r.status === 'failed').length],
+    ]
+      .map(([label, count]) => `<div class="stat"><small>${label}</small><strong>${count}</strong></div>`)
+      .join(
+        '',
+      )}</div><div class="observation-filters"><input id="search" class="search" aria-label="搜索运行记录" placeholder="搜索运行记录…" value="${esc(search)}" />${select(
+      '类型',
+      'typeFilter',
+      typeFilter,
+      [
+        ['all', '全部类型'],
+        ['run', '员工运行'],
+        ['memory', '记忆任务'],
+      ],
+    )}${select('状态', 'statusFilter', statusFilter, [
+      ['all', '全部状态'],
+      ['completed', '已完成'],
+      ['failed', '异常'],
+    ])}</div><div class="grid compact-cards">${rows.map((row) => `<article class="entity-card" data-search="${esc(row.name + employeeName(row.employeeId) + projectName(row.projectId))}" data-status="${row.status}" data-type="${row.type}"><div class="card-top"><span class="muted">${row.type === 'run' ? '员工运行' : '记忆任务'}</span>${badge(row.status === 'completed' ? '已完成' : '异常', row.status === 'completed' ? 'green' : 'red')}</div><h3>${esc(row.name)}</h3><p class="card-description">${esc(employeeName(row.employeeId))}<br/>${esc(projectName(row.projectId))}</p><div class="card-footer"><span>${date(row.time)} · ${row.duration}</span>${button('查看详情', 'view-run', row.id)}</div></article>`).join('')}</div><div id="filter-empty" hidden>${empty('没有匹配记录', '调整关键词或筛选条件。')}</div>`
+  );
+}
+function applyFilters() {
+  const cards = document.querySelectorAll('[data-search]');
+  let visible = 0;
+  cards.forEach((card) => {
+    const matches =
+      card.dataset.search.toLowerCase().includes(search.toLowerCase()) &&
+      (!card.dataset.status || statusFilter === 'all' || card.dataset.status === statusFilter) &&
+      (!card.dataset.type || typeFilter === 'all' || card.dataset.type === typeFilter);
+    card.hidden = !matches;
+    if (matches) visible++;
+  });
+  if ($('#filter-empty')) $('#filter-empty').hidden = visible > 0;
+}
+function context() {
+  const r = route();
+  return {
+    ...r,
+    owner: (r.module === 'employees' ? data.employees : data.projects).find((item) => item.id === r.id),
+  };
+}
+function editDialog(kind, item = {}) {
+  const { owner } = context();
+  let title, fields;
+  if (kind === 'employee' || kind === 'project') {
+    title = (item.id ? '编辑' : '创建') + (kind === 'employee' ? '数字员工' : '项目');
+    fields =
+      field('名称', 'name', item.name, '填写名称', true) + area('描述', 'description', item.description, 3);
+  }
+  if (kind === 'memory') {
+    title = item.id ? '编辑记忆' : '添加记忆';
+    fields =
+      field('标题', 'title', item.title, '一句话概括记忆', true) +
+      area('内容', 'content', item.content, 7) +
+      field('来源说明', 'source', item.source, '例如：已确认的项目会议');
+  }
+  if (kind === 'group') {
+    title = item.id ? '编辑群聊' : '关联群聊';
+    fields =
+      field('群聊名称', 'name', item.name, '填写群聊名称', true) +
+      field('群聊 ID', 'chatId', item.chatId, 'oc_…', true) +
+      select(
+        '数字员工',
+        'employeeId',
+        item.employeeId || data.employees[0]?.id,
+        data.employees.map((e) => [e.id, e.name]),
+      );
+  }
+  if (kind === 'member') {
+    title = item.id ? '修改成员权限' : '添加成员';
+    fields =
+      field('成员名称', 'name', item.name, '填写名称', true) +
+      field('成员标识', 'account', item.account, '邮箱或用户 ID', true) +
+      select('项目权限', 'permission', item.permission || 'read', [
+        ['read', '查看 · 只读记忆'],
+        ['write', '改写 · 新增、编辑、删除记忆'],
+        ['manage', '管理 · 改写记忆及管理成员'],
+      ]);
+  }
+  if (kind === 'credential') {
+    title = '登记凭证引用';
+    fields =
+      '<p class="muted">请勿输入 API Key、Secret 或 Token 明文。</p>' +
+      field('凭证名称', 'name', '', '例如：资料库凭证', true) +
+      field('凭证引用标识', 'reference', '', '例如：credential://knowledge-reader', true);
+  }
+  if (kind === 'skill') {
+    title = '添加技能';
+    fields = field('技能名称', 'name', '', '例如：文案校对', true) + area('技能说明', 'description', '', 3);
+  }
+  if (kind === 'publish') {
+    title = '发布演示版本';
+    fields =
+      '<p class="muted">将当前已保存配置生成本地版本快照，不会发布到 MA。</p>' +
+      field('版本说明', 'note', '', '概述本次调整', true);
+  }
+  modal(
+    title,
+    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'publish' ? '确认发布' : '保存'}</button></div><p class="demo-note">仅更新当前浏览器中的演示数据</p></form>`,
+  );
+}
+function confirmAction(title, text, action, id) {
+  modal(
+    title,
+    `<p>${esc(text)}</p><div class="actions form-actions">${button('取消', 'close')}${button('确认', action, id, true)}</div>`,
+  );
+}
+document.addEventListener('click', (event) => {
+  const target = event.target.closest('[data-action]');
+  if (!target) return;
+  const action = target.dataset.action,
+    id = target.dataset.id;
+  const { owner } = context();
+  if (action === 'close') return closeModal();
+  if (action === 'new-employee') return editDialog('employee');
+  if (action === 'new-project') return editDialog('project');
+  if (action === 'edit-project') return editDialog('project', owner);
+  if (action === 'view-run') {
+    const row = data.observations.find((r) => r.id === id);
+    return modal(
+      row.name,
+      `<p class="muted">演示记录 · ${date(row.time)} · ${esc(row.duration)}</p><p>${esc(row.detail)}</p><ol class="timeline">${row.steps.map((step) => `<li>${esc(step)}</li>`).join('')}</ol>`,
+    );
+  }
+  if (!owner) return;
+  if (action.startsWith('add-')) return editDialog(action.slice(4));
+  if (action === 'edit-memory')
+    return editDialog(
+      'memory',
+      owner.memories.find((m) => m.id === id),
+    );
+  if (action === 'edit-group')
+    return editDialog(
+      'group',
+      owner.groups.find((m) => m.id === id),
+    );
+  if (action === 'edit-member')
+    return editDialog(
+      'member',
+      owner.members.find((m) => m.id === id),
+    );
+  if (action === 'toggle-skill') {
+    const skill = owner.skills.find((s) => s.id === id);
+    skill.enabled = !skill.enabled;
+    return commit('技能状态已更新');
+  }
+  if (action === 'publish') return editDialog('publish');
+  if (action === 'view-version') {
+    const v = owner.versions.find((r) => r.id === id);
+    return modal(
+      `v${v.number} 配置快照`,
+      `<p class="muted">${esc(v.note)}</p><pre>${esc(JSON.stringify(v.snapshot, null, 2))}</pre>`,
+    );
+  }
+  if (action === 'activate-version')
+    return confirmAction(
+      '切换版本',
+      '切换后将用该版本配置替换当前配置，员工记忆会保留。',
+      'confirm-version',
+      id,
+    );
+  if (action === 'confirm-version') {
+    const v = owner.versions.find((r) => r.id === id);
+    Object.assign(owner, copy(v.snapshot), { activeVersion: v.id });
+    closeModal();
+    return commit('版本已切换');
+  }
+  if (action.startsWith('remove-') || action === 'delete-memory')
+    return confirmAction('确认移除', '此操作仅移除本地演示记录。', 'confirm-' + action, id);
+  if (action.startsWith('confirm-remove-') || action === 'confirm-delete-memory') {
+    const collection = {
+      'confirm-remove-group': 'groups',
+      'confirm-remove-member': 'members',
+      'confirm-remove-skill': 'skills',
+      'confirm-remove-credential': 'credentials',
+      'confirm-delete-memory': 'memories',
+    }[action];
+    if (!collection) return;
+    if (
+      collection === 'members' &&
+      owner.members.find((m) => m.id === id)?.permission === 'manage' &&
+      owner.members.filter((m) => m.permission === 'manage').length === 1
+    )
+      return toast('请至少保留一位项目管理成员');
+    owner[collection] = owner[collection].filter((item) => item.id !== id);
+    closeModal();
+    return commit('记录已移除');
+  }
+});
+document.addEventListener('submit', (event) => {
   event.preventDefault();
-  const { action, id } = b.dataset;
-  try {
-    if (action === 'close') return $('#modal').close();
-    if (action === 'refresh') {
-      await refresh();
-      return toast('已同步最新状态');
-    }
-    if (action === 'logout') {
-      await api('/logout', {});
-      return showLogin();
-    }
-    if (action === 'back') {
-      selectedEmployee = null;
-      return render();
-    }
-    if (action === 'employee') {
-      selectedEmployee = id;
-      tab = 'identity';
-      return render();
-    }
-    if (action === 'tab') {
-      tab = id;
-      return render();
-    }
-    if (action === 'new-employee')
-      return modal(
-        '<h2>创建数字员工</h2><p class="muted">先命名，再定义身份与规则。创建不会启动真实 Bot。</p><form id="employee-form">' +
-          field('员工名称', 'name', '', '例如 品牌策略顾问') +
-          '<button class="primary">创建员工</button></form>',
-      );
-    if (action === 'new-project')
-      return modal(
-        '<h2>创建项目</h2><form id="project-form">' +
-          field('项目名称', 'name', '', '例如 秋季品牌上市') +
-          field('项目管理员标识（逗号分隔）', 'managers', '', 'project-manager') +
-          '<button class="primary">创建项目</button></form>',
-      );
-    if (action === 'project-edit') {
-      const p = state.projects.find((p) => p.id === id);
-      return modal(
-        '<h2>项目设置</h2><form id="project-edit-form" data-id="' +
-          id +
-          '">' +
-          field('项目名称', 'name', p.name) +
-          (admin() ? field('项目管理员标识', 'managers', p.managers.join(', ')) : '') +
-          '<label class="checkbox-label"><input name="extractionEnabled" type="checkbox" ' +
-          (p.extractionEnabled ? 'checked' : '') +
-          '>开启后台自动提炼</label><button class="primary">保存项目</button></form>',
-      );
-    }
-    if (action === 'bind') return bindingModal(id);
-    if (action === 'edit-binding') {
-      const bind = state.bindings.find((x) => x.id === id);
-      return bindingModal(bind.projectId, bind);
-    }
-    if (action === 'publish') {
-      const e = state.employees.find((e) => e.id === selectedEmployee);
-      await api('/employees/' + e.id + '/publish', { revision: e.revision });
-      await refresh();
-      return toast('已发布不可变快照');
-    }
-    if (action === 'activate') {
-      await api('/employees/' + selectedEmployee + '/activate', { releaseId: id });
-      await refresh();
-      return toast('已切回所选版本');
-    }
-    if (action === 'preview-draft') {
-      const e = state.employees.find((e) => e.id === selectedEmployee);
-      return modal(
-        '<h2>已保存草稿 · 配置预览</h2><p class="muted">这里预览配置；MA 行为须使用独立测试 Bot 验证。</p><pre>' +
-          esc(JSON.stringify(e.draft, null, 2)) +
-          '</pre>',
-      );
-    }
-    if (action === 'compare') {
-      const r = state.releases.find((r) => r.id === id),
-        e = state.employees.find((e) => e.id === r.employeeId);
-      return modal(
-        '<h2>发布 v' +
-          r.version +
-          ' 与当前草稿</h2>' +
-          Object.keys(r.content)
-            .map(
-              (key) =>
-                '<h3>' +
-                esc(key) +
-                ' ' +
-                badge(r.content[key] === (e.draft || r.content)[key] ? '无变化' : '已修改') +
-                '</h3><div class="diff-grid"><pre class="diff-old">' +
-                esc(r.content[key] || '（空）') +
-                '</pre><pre class="diff-new">' +
-                esc((e.draft || r.content)[key] || '（空）') +
-                '</pre></div>',
-            )
-            .join(''),
-      );
-    }
-    if (action === 'sources') {
-      const m = state.memories.find((m) => m.id === id),
-        sources = await api('/memories/' + id + '/sources');
-      return modal(
-        '<h2>来源 · ' +
-          esc(m.key) +
-          '</h2><p class="muted">当前修订 ' +
-          m.revision +
-          ' · ' +
-          (m.correctedBy ? '管理员纠正：' + esc(m.correctedBy) : '经来源确认提炼') +
-          '</p>' +
-          sources
-            .map(
-              (t) =>
-                '<div class="list-item"><b>' +
-                esc(t.chatId) +
-                ' / ' +
-                esc(t.threadId || '公共群聊') +
-                '</b><p>确认人 ' +
-                esc(t.userId) +
-                ' · 消息 ' +
-                esc(t.messageId) +
-                ' · Session ' +
-                esc(t.sessionId || '—') +
-                '</p><pre>' +
-                esc(t.text) +
-                '</pre><small>来源轮次 ' +
-                esc(t.id) +
-                '</small></div>',
-            )
-            .join(''),
-      );
-    }
-    if (action === 'correct') {
-      const m = state.memories.find((m) => m.id === id);
-      return modal(
-        '<h2>纠正项目记忆</h2><p class="muted">原记录保留为已替代，新记录附带纠正身份。</p><form id="correct-form" data-id="' +
-          id +
-          '"><label>' +
-          esc(m.key) +
-          '<textarea name="value" required>' +
-          esc(m.value) +
-          '</textarea></label><button class="primary">保存纠正</button></form>',
-      );
-    }
-    if (['delete-memory', 'resolve', 'approve'].includes(action)) {
-      const m = state.memories.find((m) => m.id === id);
-      await api('/memories/' + id + '/' + (action === 'delete-memory' ? 'delete' : action), {
-        revision: m.revision,
+  const form = event.target;
+  const values = Object.fromEntries(new FormData(form));
+  const { owner } = context();
+  if (form.id === 'employee-form') {
+    const section = form.dataset.section;
+    if (section === 'basic') {
+      if (!values.name.trim()) return toast('请填写名称');
+      Object.assign(owner, {
+        name: values.name.trim(),
+        description: values.description.trim(),
+        enabled: values.enabled === 'true',
       });
-      await refresh();
-      return toast('已更新记忆与项目修订');
     }
-    if (action === 'resource')
-      return modal(
-        '<h2>登记长期资料</h2><form id="resource-form"><label>来源项目群<select name="bindingId">' +
-          state.bindings
-            .filter((b) => b.active)
-            .map(
-              (b) =>
-                '<option value="' +
-                esc(b.id) +
-                '">' +
-                esc(pname(b.projectId)) +
-                ' / ' +
-                esc(b.chatId) +
-                '</option>',
-            )
-            .join('') +
-          '</select></label>' +
-          field('资料名称', 'name') +
-          field('受权限控制的 HTTPS 链接', 'uri', '', 'https://…') +
-          '<button class="primary">登记资料</button></form>',
+    if (section === 'identity') owner.identity = values.identity;
+    if (section === 'knowledge') Object.assign(owner, { knowledge: values.knowledge, rules: values.rules });
+    if (section === 'environment') owner.environment = { ...values, timeout: Number(values.timeout) };
+    if (section === 'channels') {
+      if (
+        (values.feishuEnabled === 'true' && !values.appId.trim()) ||
+        (values.doubaoEnabled === 'true' && !values.agentId.trim())
+      )
+        return toast('启用渠道前请填写对应标识');
+      owner.channels = {
+        feishu: { enabled: values.feishuEnabled === 'true', appId: values.appId.trim() },
+        doubao: { enabled: values.doubaoEnabled === 'true', agentId: values.agentId.trim() },
+      };
+    }
+    owner.updatedAt = new Date().toISOString();
+    return commit('配置已保存');
+  }
+  if (form.id !== 'dialog-form') return;
+  const kind = form.dataset.kind,
+    id = form.dataset.id;
+  for (const key of Object.keys(values)) values[key] = values[key].trim();
+  if (kind === 'employee') {
+    if (!values.name) return toast('请填写名称');
+    const item = initialEmployee(uid(), values.name, values.description);
+    data.employees.push(item);
+    closeModal();
+    commit('员工已创建');
+    location.hash = `employees/${item.id}`;
+    return;
+  }
+  if (kind === 'project') {
+    if (!values.name) return toast('请填写名称');
+    if (id) Object.assign(owner, values);
+    else
+      data.projects.push({
+        id: uid(),
+        ...values,
+        memories: [],
+        groups: [],
+        members: [{ id: uid(), name: '当前演示用户', account: 'demo-user', permission: 'manage' }],
+      });
+  }
+  if (kind === 'memory') {
+    if (!values.title || !values.content) return toast('请填写记忆标题和内容');
+    const record = { id: id || uid(), ...values, updatedAt: new Date().toISOString() };
+    if (id)
+      Object.assign(
+        owner.memories.find((m) => m.id === id),
+        record,
       );
-    if (action === 'revoke-resource') {
-      await api('/resources/' + id + '/revoke', {});
-      await refresh();
-      return toast('资料索引已撤销');
-    }
-    if (action === 'retry-job') {
-      await api('/jobs/' + id + '/retry', {});
-      await refresh();
-      return toast('已安排重试，仍需通过空闲与权限检查');
-    }
-  } catch (e) {
-    toast(e.message);
+    else owner.memories.push(record);
+  }
+  if (kind === 'group') {
+    if (!values.name || !values.chatId || !values.employeeId) return toast('请补全群聊信息');
+    if (owner.groups.some((g) => g.chatId === values.chatId && g.id !== id))
+      return toast('该群聊已关联到当前项目');
+    if (id)
+      Object.assign(
+        owner.groups.find((g) => g.id === id),
+        values,
+      );
+    else owner.groups.push({ id: uid(), ...values });
+  }
+  if (kind === 'member') {
+    if (!values.name || !values.account) return toast('请填写成员信息');
+    if (owner.members.some((m) => m.account.toLowerCase() === values.account.toLowerCase() && m.id !== id))
+      return toast('该成员已存在');
+    if (
+      id &&
+      owner.members.find((m) => m.id === id)?.permission === 'manage' &&
+      values.permission !== 'manage' &&
+      owner.members.filter((m) => m.permission === 'manage').length === 1
+    )
+      return toast('请至少保留一位项目管理成员');
+    if (id)
+      Object.assign(
+        owner.members.find((m) => m.id === id),
+        values,
+      );
+    else owner.members.push({ id: uid(), ...values });
+  }
+  if (kind === 'skill') {
+    if (!values.name) return toast('请填写技能名称');
+    if (owner.skills.some((s) => s.name === values.name)) return toast('该技能已存在');
+    owner.skills.push({ id: uid(), ...values, enabled: true });
+  }
+  if (kind === 'credential') {
+    if (!values.name || !values.reference) return toast('请填写名称与引用标识');
+    if (!/^(credential|vault):\/\/[a-zA-Z0-9/_-]+$/.test(values.reference))
+      return toast('请填写 credential:// 或 vault:// 开头的引用，不要输入密钥');
+    owner.credentials.push({ id: uid(), ...values });
+  }
+  if (kind === 'publish') {
+    if (!values.note) return toast('请填写版本说明');
+    const version = {
+      id: uid(),
+      number: Math.max(0, ...owner.versions.map((v) => v.number)) + 1,
+      note: values.note,
+      createdAt: new Date().toISOString(),
+      snapshot: snapshot(owner),
+    };
+    owner.versions.push(version);
+    owner.activeVersion = version.id;
+  }
+  closeModal();
+  commit(kind === 'publish' ? '演示版本已发布' : '已保存');
+});
+document.addEventListener('input', (event) => {
+  if (event.target.id === 'search') {
+    search = event.target.value;
+    applyFilters();
+  } else if (event.target.closest('#employee-form')) {
+    dirty = true;
+    if ($('#save-state')) $('#save-state').textContent = '有未保存的修改';
   }
 });
-const split = (s) =>
-  String(s || '')
-    .split(/[,，]/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-document.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const form = event.target,
-    data = Object.fromEntries(new FormData(form)),
-    submit = form.querySelector('button.primary');
-  if (submit) submit.disabled = true;
-  try {
-    if (form.id === 'login-form') {
-      await api('/login', data);
-      await refresh();
-      return;
-    }
-    if (form.id === 'employee-form') {
-      const e = await api('/employees', data);
-      selectedEmployee = e.id;
-      tab = 'identity';
-    }
-    if (form.id === 'project-form') await api('/projects', { ...data, managers: split(data.managers) });
-    if (form.id === 'project-edit-form')
-      await api('/projects/' + form.dataset.id, {
-        name: data.name,
-        ...(admin() ? { managers: split(data.managers) } : {}),
-        extractionEnabled: form.elements.extractionEnabled.checked,
-      });
-    if (form.id === 'draft-form') {
-      const e = state.employees.find((e) => e.id === selectedEmployee);
-      await api('/employees/' + e.id + '/draft', { content: { ...e.draft, ...data }, revision: e.revision });
-    }
-    if (form.id === 'binding-form') {
-      const employeeId = form.elements.employeeId.value,
-        current = state.bindings.find((b) => b.chatId === data.chatId && b.employeeId === employeeId);
-      await api('/bindings', {
-        ...data,
-        employeeId,
-        sharedWith: split(data.sharedWith),
-        active: form.elements.active.checked,
-        revision: data.revision ? Number(data.revision) : undefined,
-        ...(!admin() && current?.releaseId ? { releaseId: current.releaseId } : {}),
-      });
-    }
-    if (form.id === 'correct-form') {
-      const m = state.memories.find((m) => m.id === form.dataset.id);
-      await api('/memories/' + m.id + '/correct', { ...data, revision: m.revision });
-    }
-    if (form.id === 'resource-form') {
-      const bind = state.bindings.find((b) => b.id === data.bindingId);
-      await api('/resources', { ...data, projectId: bind.projectId });
-    }
-    if (form.id === 'lab-form') {
-      const bind = state.bindings.find((b) => b.id === data.binding);
-      labBinding = data.binding;
-      labThread = data.threadId;
-      labMessages.push({ role: 'user', text: data.text, chat: bind.chatId });
-      const r = await api('/lab/chat', {
-        employeeId: bind.employeeId,
-        chatId: bind.chatId,
-        threadId: data.threadId,
-        text: data.text,
-      });
-      labMessages.push({ role: 'assistant', text: r.text || r.error });
-      await refresh();
-      return;
-    }
-    $('#modal').close();
-    await refresh();
-    toast('已保存');
-  } catch (e) {
-    if (form.id === 'login-form') $('#login-error').textContent = e.message;
-    else toast(e.message);
-  } finally {
-    if (submit) submit.disabled = false;
+document.addEventListener('change', (event) => {
+  if (event.target.name === 'typeFilter') {
+    typeFilter = event.target.value;
+    applyFilters();
+  }
+  if (event.target.name === 'statusFilter') {
+    statusFilter = event.target.value;
+    applyFilters();
   }
 });
-document.addEventListener('input', (e) => {
-  if (e.target.id === 'employee-search') {
-    const q = e.target.value.toLowerCase();
-    document
-      .querySelectorAll('.employee-card')
-      .forEach((card) => (card.hidden = !card.dataset.name.toLowerCase().includes(q)));
-  }
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('a[href^="#"]');
+  if (link && dirty && !confirm('有未保存的修改，确定离开吗？')) event.preventDefault();
 });
-document.addEventListener('change', (e) => {
-  if (e.target.id === 'memory-filter') {
-    filter = e.target.value;
-    render();
+window.addEventListener('beforeunload', (event) => {
+  if (dirty) {
+    event.preventDefault();
+    event.returnValue = '';
   }
 });
 window.addEventListener('hashchange', () => {
-  if (state) render();
+  dirty = false;
+  search = '';
+  statusFilter = 'all';
+  typeFilter = 'all';
+  closeModal();
+  render();
+  window.scrollTo(0, 0);
 });
-setInterval(() => {
-  if (state && page === 'jobs' && !$('#modal').open) refresh().catch((e) => toast(e.message));
-}, 5000);
-refresh().catch(() => showLogin());
+render();

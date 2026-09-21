@@ -7,68 +7,34 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <div id="login" class="login-layout">
-      <div class="login-story">
-        <div class="brand-mark">B<span>•</span></div>
-        <p class="eyebrow">workforce / DIGITAL WORKFORCE</p>
-        <h1>让经验留下来，<br />让协作向前走。</h1>
-        <p>为每位数字员工定义身份，为每个项目积累有来源、可控制的知识。</p>
-        <div class="story-foot">IDENTITY / KNOWLEDGE / PROJECT MEMORY</div>
-      </div>
-      <div class="login-card">
-        <span class="pill">本机管理模式</span>
-        <h2>进入数字员工工作台</h2>
-        <p class="muted">仅在本机开放。请输入本地保存的管理员或项目管理员访问令牌。</p>
-        <form id="login-form">
-          <label
-            >访问令牌<input
-              type="password"
-              name="token"
-              required
-              autocomplete="current-password"
-              placeholder="粘贴本机访问令牌" /></label
-          ><button class="primary">登录工作台 →</button>
-        </form>
-        <small>首次启动后，令牌位于项目的 <code>data/admin-token</code>。不会传给模型或飞书。</small>
-        <p id="login-error" class="error" role="alert"></p>
-      </div>
-    </div>
-    <div id="app" hidden>
+    <div id="app">
       <aside>
         <a class="brand" href="#employees"
           ><span class="brand-mark small">B<span>•</span></span
-          ><span>数字员工<small>WORKFORCE STUDIO</small></span></a
+          ><span>数字员工</span></a
         >
-        <div class="workspace-label">工作空间 <span>LOCAL</span></div>
-        <nav>
-          <a href="#employees" data-nav="employees"><span>◈</span>数字员工</a
-          ><a href="#projects" data-nav="projects"><span>▦</span>项目与群聊</a
-          ><a href="#memories" data-nav="memories"><span>▤</span>项目记忆</a
-          ><a href="#jobs" data-nav="jobs"><span>◷</span>运行与后台任务</a>
-          <div class="nav-separator"></div>
-          <a href="#lab" data-nav="lab"><span>◎</span>本地验收室</a>
+        <div class="workspace-label">工作空间</div>
+        <nav aria-label="主导航">
+          <a href="#employees" data-nav="employees"><span aria-hidden="true">◈</span>数字员工</a>
+          <a href="#projects" data-nav="projects"><span aria-hidden="true">▦</span>项目</a>
+          <a href="#observations" data-nav="observations"><span aria-hidden="true">◷</span>观测</a>
         </nav>
         <div class="sidebar-foot">
-          <span class="status-dot"></span> 本机服务已连接
-          <p id="principal"></p>
-          <button data-action="logout" class="text-button">退出登录</button>
+          <span class="status-dot"></span>前端演示
+          <p>数据仅保存在当前浏览器</p>
         </div>
       </aside>
       <div class="main-shell">
         <header>
-          <div id="breadcrumb"></div>
-          <div class="header-right">
-            <span class="pill">LOCAL · 开发验收</span><button data-action="refresh" class="quiet">刷新</button
-            ><span class="avatar">管</span>
-          </div>
+          <div id="breadcrumb">工作空间</div>
+          <div class="header-right"><span class="pill">演示模式 · 未连接后端</span></div>
         </header>
         <main id="content"></main>
-        <footer>共享必要的项目记忆，保留清晰的权限边界。<span>Gateway 管理 · 本地持久化</span></footer>
       </div>
     </div>
     <div id="toast" role="status" hidden></div>
-    <dialog id="modal">
-      <button data-action="close" class="dialog-close" aria-label="关闭">×</button>
+    <dialog id="modal" aria-labelledby="modal-title">
+      <button type="button" data-action="close" class="dialog-close" aria-label="关闭">×</button>
       <div id="modal-content"></div>
     </dialog>
     <script src="/app.js" defer></script>
