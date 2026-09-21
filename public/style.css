@@ -929,6 +929,36 @@ dialog::backdrop {
   background: #09090b66;
   backdrop-filter: blur(2px);
 }
+#modal-content,
+#modal-content > form {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+#modal-content > *,
+#modal-content > form > * {
+  margin: 0;
+  min-width: 0;
+}
+#modal-title {
+  padding-right: 24px;
+}
+#modal-content > .search {
+  width: 100%;
+}
+#modal-content > .actions,
+#modal-content > form > .actions {
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  justify-content: flex-end;
+}
+#modal-content > #ma-config-form {
+  gap: 12px;
+}
+#dialog-feedback:empty,
+#ma-verification-message:empty {
+  display: none;
+}
 .dialog-close {
   position: absolute;
   right: 13px;
