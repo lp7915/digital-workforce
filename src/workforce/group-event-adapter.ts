@@ -11,8 +11,9 @@ export function registerGroupEvents(
     if (!raw.chat_id) return;
     handler({ chatId: raw.chat_id, joined, time: Number(raw.create_time) || undefined });
   };
+  // SDK connect 时会注册默认进群 dispatcher，必须通过公开事件监听保留回调。
+  channel.on('botAdded', (event: any) => receive(true)({ ...event.raw, chat_id: event.chatId }));
   channel.dispatcher.register({
-    'im.chat.member.bot.added_v1': receive(true),
     'im.chat.member.bot.deleted_v1': receive(false),
   });
 }

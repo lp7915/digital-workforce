@@ -1956,3 +1956,31 @@ document.addEventListener('change', (event) => {
     render();
   }
 });
+
+let pollingGroups = false;
+async function refreshGroupScene() {
+  const visible = () =>
+    route().module === 'groups' || (route().module === 'projects' && route().section === 'groups');
+  const busy = () =>
+    dirty ||
+    saving ||
+    $('#modal').open ||
+    document.activeElement?.matches('input, textarea, [role="combobox"]');
+  if (pollingGroups || !connected || !visible() || busy()) return;
+  pollingGroups = true;
+  const revision = serverRevision;
+  try {
+    const result = await request('');
+    if (!visible() || busy() || revision !== serverRevision) return;
+    if (result.revision !== serverRevision) {
+      acceptServer(result);
+      render();
+    }
+  } catch {
+    $('#workspace-status').textContent = '群聊同步失败，将自动重试';
+  } finally {
+    pollingGroups = false;
+  }
+}
+setInterval(() => void refreshGroupScene(), 2000);
+window.addEventListener('focus', () => void refreshGroupScene());
