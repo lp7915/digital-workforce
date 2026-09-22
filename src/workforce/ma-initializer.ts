@@ -293,7 +293,7 @@ export class MaInitializer {
       binding.environmentId = environmentId;
       this.channels.saveResourceBinding(binding);
       const vault = await registry.ensure(`vault:${e.id}`, '/vaults', binding.vaultId, async () => ({
-        id: await ark.createVault(`bf-${e.id}`, { workforce_employee: e.id }),
+        id: await ark.createVault(`workforce-${e.id}`, { workforce_employee: e.id }),
       }));
       binding.vaultId = vault.resource.id;
       this.channels.saveResourceBinding(binding);
@@ -331,7 +331,7 @@ export class MaInitializer {
     job.result = [...job.steps, ...job.warnings].join('\n');
   }
   private async uploadSkill(name: string, key: string) {
-    const directory = mkdtempSync(join(tmpdir(), 'bf-skill-'));
+    const directory = mkdtempSync(join(tmpdir(), 'workforce-skill-'));
     try {
       const zip = join(directory, `${name}.zip`);
       execFileSync('zip', ['-q', '-r', zip, name], { cwd: resolve('skills') });

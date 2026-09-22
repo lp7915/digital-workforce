@@ -19,7 +19,11 @@ export class MaEnvironments {
   }
   private recommended(e: any) {
     return (
-      e.name === RECOMMENDED_ENVIRONMENT_NAME &&
+      (e.name === RECOMMENDED_ENVIRONMENT_NAME ||
+        e.id ===
+          this.workspace.db
+            .prepare('SELECT remote_id FROM workspace_recommended_environment WHERE id=1')
+            .get()?.remote_id) &&
       e.config?.setup_script === LARK_CLI_SETUP_SCRIPT &&
       !e.config?.env?.LARKSUITE_CLI_APP_ID
     );

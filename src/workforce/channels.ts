@@ -431,9 +431,9 @@ export class WorkspaceChannels {
     }
     await create(
       'environmentId',
-      async () => (await ark.createEnvironment(`bf-${b.appId}`.slice(0, 60), b.appId!)).id,
+      async () => (await ark.createEnvironment(`workforce-${b.appId}`.slice(0, 60), b.appId!)).id,
     );
-    await create('vaultId', () => ark.createVault(`bf-${b.appId}`, { workforce_employee: b.employeeId }));
+    await create('vaultId', () => ark.createVault(`workforce-${b.appId}`, { workforce_employee: b.employeeId }));
     if (!b.credentialId) {
       const credentials = await ark.listCredentials(b.vaultId!);
       const existing = credentials.find((item) => item.secretName === 'LARKSUITE_CLI_APP_SECRET');

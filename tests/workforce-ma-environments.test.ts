@@ -86,3 +86,16 @@ test('推荐环境被 MA 明确拒绝后允许修正重试，未知结果不重�
     workspace.close();
   }
 });
+
+test('推荐环境改名后按已登记 ID 复用，不创建重复资源', async () => {
+  const f = fixture();
+  try {
+    const id = await f.service.ensureRecommended();
+    f.rows.find((row) => row.id === id).name = '历史环境名称';
+    assert.equal(await f.service.ensureRecommended(), id);
+    assert.equal((await f.service.list()).recommendedId, id);
+    assert.equal(f.count(), 1);
+  } finally {
+    f.workspace.close();
+  }
+});

@@ -19,6 +19,7 @@
 需要 Node.js **22.13 或以上**、npm。MA Skill 初始化还需要系统提供 `zip` 命令。
 
 ```sh
+# 将 <owner> 替换为仓库所属账号
 git clone https://github.com/<owner>/digital-workforce.git
 cd digital-workforce
 npm ci --ignore-scripts
@@ -59,7 +60,7 @@ npm run build
 | `skills/` | 三个 ADA Skill 的源码 |
 | `tests/` | 单元与集成回归测试 |
 | `docs/` | 配置、场景、设计和实现记录 |
-| `outputs/` | 演示资料与历史验收截图 |
+| `outputs/` | 脱敏后的演示资料 |
 | `data/`、`work/`、`log/` | 本地数据与运行产物，排除在版本控制之外 |
 
 - [ADA 艺人分析场景](docs/ADA.md)
