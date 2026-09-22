@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, existsSync } from 'node:fs';
 import { MaConfiguration } from './ma-config.ts';
 import { MaSkills } from './ma-skills.ts';
-import { missingConversationScopes } from './channel-permissions.ts';
+import { missingConversationScopes, hasGroupEventScope } from './channel-permissions.ts';
 import { resolve } from 'node:path';
 import { registerApp, Client } from '@larksuiteoapi/node-sdk';
 import QRCode from 'qrcode-terminal/vendor/QRCode/index.js';
@@ -46,6 +46,7 @@ type Binding = {
   credentialId?: string;
   permissionsVersion?: number;
   permissionWarnings?: string[];
+  groupEventsAuthorized?: boolean;
   pendingResource?: string;
   lastReceivedAt?: string;
   lastRepliedAt?: string;
@@ -197,6 +198,7 @@ export class WorkspaceChannels {
       lastRepliedAt: b.lastRepliedAt,
       permissionsVersion: b.permissionsVersion || 1,
       permissionWarnings: b.permissionWarnings || [],
+      groupEventsAuthorized: b.groupEventsAuthorized,
       environmentId: b.environmentId,
       agentId: b.agentId,
       agentVersion: b.agentVersion,
@@ -381,6 +383,7 @@ export class WorkspaceChannels {
         .map((s) => s.scope_name),
     );
     const missing = missingConversationScopes(tenant);
+    b.groupEventsAuthorized = hasGroupEventScope(tenant);
     b.permissionWarnings = resolveLarkBotScopes(DEFAULT_LARK_DOMAINS).filter((scope) => !tenant.has(scope));
     checkpoint();
     if (missing.length)
@@ -433,7 +436,9 @@ export class WorkspaceChannels {
       'environmentId',
       async () => (await ark.createEnvironment(`workforce-${b.appId}`.slice(0, 60), b.appId!)).id,
     );
-    await create('vaultId', () => ark.createVault(`workforce-${b.appId}`, { workforce_employee: b.employeeId }));
+    await create('vaultId', () =>
+      ark.createVault(`workforce-${b.appId}`, { workforce_employee: b.employeeId }),
+    );
     if (!b.credentialId) {
       const credentials = await ark.listCredentials(b.vaultId!);
       const existing = credentials.find((item) => item.secretName === 'LARKSUITE_CLI_APP_SECRET');

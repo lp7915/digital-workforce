@@ -712,6 +712,7 @@ async function openFeishu(id, begin = false, confirmedNotCreated = false, upgrad
 function paintFeishu(id, state) {
   if (!$('#modal').open || feishuDialogId !== id || !$('#feishu-progress')) return;
   $('#feishu-progress').innerHTML = `<p role="status">${esc(state.message || state.status)}</p>
+    ${state.groupEventsAuthorized === false ? `<p class="error" role="alert">缺少机器人进退群事件权限，移除机器人后工作台无法自动同步。请在飞书开放平台开通「订阅机器人进、出群事件」并确认订阅进群、退群事件，发布应用后重启本机服务。</p><p><a href="https://open.feishu.cn/app/${encodeURIComponent(state.appId)}/auth" target="_blank" rel="noopener noreferrer">前往飞书配置权限 ↗</a></p>` : ''}
     ${state.permissionWarnings?.length ? `<p class="muted">原权限模板尚未授予：${state.permissionWarnings.map(esc).join('、')}。相关业务操作以飞书实际权限为准，不影响已具备权限的卡片对话。</p>` : ''}
     ${state.status === 'awaiting_permissions' ? button('补齐现有应用权限', 'upgrade-feishu', id, true) : ''}
     ${state.appId && ['stopped', 'awaiting_ma', 'error'].includes(state.status) ? button('继续接入', 'resume-feishu', id, true) : ''}

@@ -17,6 +17,7 @@ const BOT_BASE_SCOPES = [
   "im:message.group_msg",
   "im:chat:readonly",
   "im:chat.members:read",
+  "im:chat.members:bot_access",
   "im:message.reactions:write_only",
   "im:message:update",
   "cardkit:card:write",
