@@ -286,9 +286,13 @@ export async function createWeb(
           if (method === 'GET') return json(res, options.channels.view(decodeURIComponent(channel[1])));
           if (method === 'POST') {
             const input = await body(req);
+            if (input?.mode !== undefined && !['existing', 'new'].includes(input.mode))
+              throw new DomainError('不支持的飞书接入方式');
             return json(
               res,
-              options.channels.begin(decodeURIComponent(channel[1]), input?.confirmedNotCreated === true),
+              input?.mode === 'existing'
+                ? await options.channels.bindExisting(decodeURIComponent(channel[1]), input)
+                : options.channels.begin(decodeURIComponent(channel[1]), input?.confirmedNotCreated === true),
               202,
             );
           }

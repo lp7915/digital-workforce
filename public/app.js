@@ -683,6 +683,51 @@ document.addEventListener('click', async (event) => {
 });
 let feishuPoll;
 let feishuDialogId;
+function chooseFeishu(id) {
+  modal(
+    '接入飞书',
+    `<p class="muted">选择此数字员工使用的飞书应用。</p><div class="actions">${button('新建飞书应用', 'create-feishu', '', true)}${button('使用已有应用', 'existing-feishu')}</div><div class="actions form-actions">${button('取消', 'close')}</div>`,
+  );
+  feishuDialogId = id;
+}
+function existingFeishu(id) {
+  clearTimeout(feishuPoll);
+  feishuDialogId = id;
+  modal(
+    '使用已有飞书应用',
+    `<form id="existing-feishu-form">
+    <p class="muted">填写企业自建应用凭证。接入后会校验权限并启动机器人连接；同一应用只能绑定一个数字员工。</p>
+    <label>App ID<input name="appId" placeholder="cli_…" required autocomplete="off"></label>
+    <label>App Secret<input name="appSecret" type="password" required autocomplete="new-password"></label>
+    <p class="muted">请在飞书开放平台启用机器人、配置长连接与消息/机器人进退群事件，并发布应用。若已有其他服务使用此机器人，请先停止原服务。</p>
+    <p id="existing-feishu-error" class="error" role="alert"></p>
+    <div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">验证并接入</button></div></form>`,
+  );
+}
+document.addEventListener('submit', async (event) => {
+  if (event.target.id !== 'existing-feishu-form') return;
+  event.preventDefault();
+  const form = event.target,
+    id = feishuDialogId,
+    submit = form.querySelector('[type="submit"]');
+  const data = new FormData(form);
+  submit.disabled = true;
+  try {
+    await request(`/employees/${encodeURIComponent(id)}/feishu`, 'POST', {
+      mode: 'existing',
+      appId: data.get('appId'),
+      appSecret: data.get('appSecret'),
+    });
+    form.elements.appSecret.value = '';
+    if ($('#modal').open && feishuDialogId === id && $('#existing-feishu-form') === form)
+      await openFeishu(id);
+  } catch (error) {
+    form.elements.appSecret.value = '';
+    form.querySelector('#existing-feishu-error').textContent = error.message;
+  } finally {
+    submit.disabled = false;
+  }
+});
 async function openFeishu(id, begin = false, confirmedNotCreated = false, upgrade = false) {
   clearTimeout(feishuPoll);
   feishuDialogId = id;
@@ -1016,8 +1061,8 @@ function employeeDetail(e, section) {
         if (feishu)
           return panel(
             '飞书',
-            '用当前飞书账号确认创建应用，绑定后自动启动消息服务。',
-            `<div class="actions">${button('创建应用并接入', 'connect-feishu', '', true)}${button('查看接入状态', 'view-feishu')}</div>`,
+            '新建或使用已有飞书应用，绑定后自动启动消息服务。',
+            `<div class="actions">${button('接入飞书', 'connect-feishu', '', true)}${button('查看接入状态', 'view-feishu')}</div>`,
           );
         return panel(
           feishu ? '飞书' : '豆包',
@@ -1468,7 +1513,9 @@ document.addEventListener('click', async (event) => {
   if (action === 'retry-feishu') return openFeishu(id, true, true);
   if (action === 'upgrade-feishu') return openFeishu(id, true, false, true);
   if (action === 'resume-feishu') return openFeishu(id, true);
-  if (action === 'connect-feishu') return openFeishu(owner.id, true);
+  if (action === 'connect-feishu') return chooseFeishu(owner.id);
+  if (action === 'create-feishu') return openFeishu(feishuDialogId, true);
+  if (action === 'existing-feishu') return existingFeishu(feishuDialogId);
   if (action === 'view-feishu') return openFeishu(owner.id);
   if (action === 'new-task') return editDialog('task');
   if (action === 'browse-feishu-groups') return browseFeishuGroups();
@@ -1704,7 +1751,7 @@ document.addEventListener('click', async (event) => {
   }
 });
 document.addEventListener('submit', async (event) => {
-  if (event.target.id === 'ma-config-form') return;
+  if (['ma-config-form', 'existing-feishu-form'].includes(event.target.id)) return;
   event.preventDefault();
   const form = event.target;
   const values = Object.fromEntries(new FormData(form));
