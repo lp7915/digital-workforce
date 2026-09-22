@@ -494,16 +494,10 @@ export class WorkspaceChannels {
         store.recordOutgoing(message, id);
       },
     });
-    const allowed = (message: any) => {
+    const employeeEnabled = () => {
       const state = this.workspace.read().state;
       const employee = state.employees.find((e: any) => e.id === b.employeeId);
-      if (!employee?.enabled) return false;
-      if (message.conversationType === 'direct') return true;
-      const group = state.groups.find(
-        (g: any) => g.chatId === message.conversationId && g.employeeIds.includes(b.employeeId),
-      );
-      if (!group) return false;
-      return true;
+      return Boolean(employee?.enabled);
     };
     const memory = new SessionMemory(
       this.workspace,
@@ -551,9 +545,7 @@ export class WorkspaceChannels {
           if (message.conversationType !== 'group') throw new DomainError('请在项目关联群中触发记忆整理');
           const group = this.workspace
             .read()
-            .state.groups.find(
-              (g: any) => g.chatId === message.conversationId && g.employeeIds.includes(b.employeeId),
-            );
+            .state.groups.find((g: any) => g.chatId === message.conversationId);
           const project = this.workspace.read().state.projects.find((p: any) => p.id === group?.projectId);
           if (!project?.memoryStores.length) throw new DomainError('请先关联项目并创建 MA 项目记忆库');
           const job = this.organizer.start(
@@ -574,8 +566,8 @@ export class WorkspaceChannels {
           current.lastRepliedAt = new Date().toISOString();
           this.put(current);
         },
-        beforeBusinessTurn: async (message) => {
-          if (!allowed(message)) throw new Error('员工已停用或群聊未关联此员工');
+        beforeBusinessTurn: async () => {
+          if (!employeeEnabled()) throw new Error('员工已停用或删除');
         },
         validateBusinessSession: (message, sessionId) => memory.validate(b.employeeId, message, sessionId),
         observeBusinessResult: async (_message, sessionId, result) => {
@@ -592,8 +584,12 @@ export class WorkspaceChannels {
           gateway.recoverPendingMessages('lark', b.appId!);
         },
         (message) => {
-          syncMessageGroup(this.workspace, b.employeeId, message);
-          if (!allowed(message)) return;
+          try {
+            syncMessageGroup(this.workspace, b.employeeId, message);
+          } catch (error) {
+            console.error('同步群聊展示数据失败：', error);
+          }
+          if (!employeeEnabled()) return;
           if (gateway.accept(message)) {
             const current = this.get(b.employeeId)!;
             current.lastReceivedAt = new Date().toISOString();

@@ -122,13 +122,7 @@ export class MemoryOrganizer {
     )
       throw new DomainError('数字员工已停用或删除', 403);
     const groups = this.memories.workspace.read().state.groups;
-    if (
-      job.chatId &&
-      !groups.some(
-        (g: any) =>
-          g.chatId === job.chatId && g.projectId === job.projectId && g.employeeIds.includes(job.employeeId),
-      )
-    )
+    if (job.chatId && !groups.some((g: any) => g.chatId === job.chatId && g.projectId === job.projectId))
       throw new DomainError('群聊项目关联已变化', 403);
     this.memories.store('projects', job.projectId, job.storeId);
     return project;
@@ -193,12 +187,7 @@ export class MemoryOrganizer {
       source.employeeId === job.employeeId &&
       this.memories.workspace
         .read()
-        .state.groups.some(
-          (g: any) =>
-            g.chatId === source.chatId &&
-            g.projectId === job.projectId &&
-            g.employeeIds.includes(job.employeeId),
-        )
+        .state.groups.some((g: any) => g.chatId === source.chatId && g.projectId === job.projectId)
     );
   }
   async initializeResource() {
