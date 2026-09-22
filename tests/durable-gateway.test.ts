@@ -142,7 +142,7 @@ test("cancelling OAuth releases durable followers without replaying the cancelle
   } finally { store.close(); }
 });
 
-test("explicit new bypasses an OAuth wait but not ordinary FIFO and preserves pending followers", async () => {
+test("explicit new bypasses an OAuth wait and clears old pending followers", async () => {
   const store = new GatewayStore(":memory:"); store.acquireRuntimeLock(); const runs: string[] = []; let gateway: Gateway, creates = 0;
   const first = message("first"), later = message("later"), reset = message("reset", { text: "/new" });
   gateway = new Gateway(store, { createSession: async () => `session-${++creates}`, run: async (s, input) => {
@@ -151,9 +151,11 @@ test("explicit new bypasses an OAuth wait but not ordinary FIFO and preserves pe
     cancelAuthorization: () => { store.finishAuthorizationRecovery(first, "cancelled"); gateway.setAuthorizationWaiting([first], "flow", false); return true; } });
   try {
     gateway.accept(first); gateway.accept(later); await until(() => store.inbox.findMessage(first)?.state === "awaiting_authorization"); await flush();
-    gateway.accept(reset); await until(() => store.inbox.findMessage(later)?.state === "completed");
-    assert.deepEqual(runs, ["session-1:first", "session-2:later"]);
-    assert.equal(store.inbox.findMessage(reset)!.state, "completed");
+    gateway.accept(reset); await until(() => store.inbox.findMessage(later)?.state === "failed");
+    assert.deepEqual(runs, ["session-1:first"]);
+    assert.equal(store.inbox.findMessage(reset), undefined);
+    gateway.accept(message("fresh")); await until(() => store.inbox.findMessage(message("fresh"))?.state === "completed");
+    assert.deepEqual(runs, ["session-1:first", "session-2:fresh"]);
     assert.equal(store.getSession(toConversationKey(first, true)), "session-2");
   } finally { store.close(); }
 });

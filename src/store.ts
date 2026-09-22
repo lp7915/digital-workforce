@@ -448,6 +448,25 @@ export class GatewayStore {
     }
   }
 
+  resetConversationQueue(key: ConversationKey, expected: InboxTask[], command: ChannelMessage): void {
+    this.assertRuntimeLock();
+    const scope = this.conversationKey(key);
+    this.messageTransaction(() => {
+      if (this.sessionCreations.pending(scope)) throw new Error("Session 创建结果尚未核实，暂不能重置");
+      for (const task of expected) {
+        if (task.binding.scope !== scope || task.message.channelType !== command.channelType
+          || task.message.installationId !== command.installationId) throw new Error("重置任务超出当前会话范围");
+        const cancelled = this.inbox.cancelForReset(task);
+        this.updateMessageEvent(cancelled, "failed", Boolean(task.sessionId), task.state === "uncertain" ? "uncertain" : "processing");
+      }
+      this.resetSession(key);
+      this.addAuditLog({ channelType: command.channelType, installationId: command.installationId,
+        tenantKey: command.tenantId, openId: command.senderId, chatId: command.conversationId,
+        messageId: command.messageId, action: "reset_session", status: "succeeded",
+        summary: `/new 已结束 ${expected.length} 条旧队列记录，保留历史与去重证据`, messageCreateTime: command.createTime });
+    });
+  }
+
   resetAllSessions(): number {
     const result = this.db.prepare("DELETE FROM conversations").run();
     this.db.prepare("DELETE FROM conversation_context_cursors").run();
@@ -607,6 +626,14 @@ export class GatewayStore {
     this.db.exec("BEGIN IMMEDIATE");
     try { const result = operation(); this.db.exec("COMMIT"); return result; }
     catch (error) { this.db.exec("ROLLBACK"); throw error; }
+  }
+
+  claimControlEvent(message: ChannelMessage): boolean {
+    if (this.db.prepare("SELECT 1 FROM gateway_message_inbox WHERE event_key = ?")
+      .get(JSON.stringify([message.channelType, message.installationId, message.messageId]))) return false;
+    if (message.channelType === "lark" && this.db.prepare("SELECT 1 FROM processed_events WHERE event_id = ?").get(message.messageId)) return false;
+    return Number(this.db.prepare("INSERT OR IGNORE INTO processed_events (event_id, status, updated_at) VALUES (?, 'processing', ?)")
+      .run(this.eventKey(message.channelType, message.installationId, message.messageId), new Date().toISOString()).changes) === 1;
   }
 
   claimEvent(channelType: string, installationId: string, eventId: string, now = Date.now()): boolean {
