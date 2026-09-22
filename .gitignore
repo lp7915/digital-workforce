@@ -14,3 +14,7 @@ outputs/*.log
 log/
 outputs/feishu-onboarding.png
 outputs/feishu-permissions-upgrade.png
+
+# Python 技能脚本运行缓存
+__pycache__/
+*.pyc

@@ -140,7 +140,11 @@ export const employeeTemplates = [
     templateId: 'social-trends-weekly-v1',
     name: '社媒热点分析员工',
     description: '数据核验、事件合并、四维洞察与周报生产；预置依赖契约和交付模板。',
-    skills: SOCIAL_SKILL_NAMES.map((name) => ({ name, tags: ['social-trends'] })),
+    skills: SOCIAL_SKILL_NAMES.map((name) => ({
+      name,
+      tags: ['social-trends'],
+      ...(name === 'social-trend-report' ? { revision: 'validator-v1' } : {}),
+    })),
     dependencies: socialDependencies,
     create: createSocialEmployee,
   },

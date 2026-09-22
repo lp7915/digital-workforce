@@ -226,3 +226,46 @@ test('所有场景技能源码名称与上传目录一致', () => {
         readFileSync(resolve('skills', skill.name, 'SKILL.md'), 'utf8').includes(`name: ${skill.name}\n`),
       );
 });
+
+test('最终产物验证器拒绝跨批次、缺失来源、注入、伪发布和未解决项', () => {
+  const result = spawnSync('python3', ['skills/social-trend-report/scripts/test_validate.py'], {
+    encoding: 'utf8',
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('旧报告技能升级一次，创建后回读暂时失败不丢失新资源回执', async (t) => {
+  const f = fixture();
+  f.config.save('fixture-key');
+  const { ensureTemplateSkills } = await import('../src/workforce/template-skills.ts');
+  f.config.savePlatformSkills([
+    { id: 'skill-old-report', name: 'social-trend-report', tags: ['social-trends'] },
+  ]);
+  let uploads = 0;
+  let reads = 0;
+  t.mock.method(globalThis, 'fetch', async (url: any, options: any = {}) => {
+    if (options.method === 'POST') {
+      uploads++;
+      return Response.json({ id: 'skill-new-report' });
+    }
+    assert.ok(String(url).endsWith('/skills/skill-new-report'));
+    if (++reads === 1) return Response.json({}, { status: 503 });
+    return Response.json({
+      id: 'skill-new-report',
+      name: 'social-trend-report',
+      source: 'custom',
+      latest_version: '1',
+    });
+  });
+  const specs = [{ name: 'social-trend-report', tags: ['social-trends'], revision: 'validator-v1' }];
+  try {
+    await assert.rejects(ensureTemplateSkills(f.workspace, f.config, specs));
+    const skills = await ensureTemplateSkills(f.workspace, f.config, specs);
+    assert.equal(skills[0].id, 'skill-new-report');
+    await ensureTemplateSkills(f.workspace, f.config, specs);
+    assert.equal(uploads, 1);
+  } finally {
+    f.close();
+  }
+});

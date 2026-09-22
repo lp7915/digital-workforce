@@ -10,13 +10,15 @@ import { PLATFORM_SKILLS } from './skill-catalog.ts';
 import type { LocalWorkspace } from './workspace.ts';
 import type { MaConfiguration } from './ma-config.ts';
 
-export type TemplateSkill = { name: string; tags: string[] };
-async function uploadSkill(name: string, key: string, api: MaMemoryApi) {
+export type TemplateSkill = { name: string; tags: string[]; revision?: string };
+async function uploadSkill(name: string, key: string) {
   if (!/^[a-z][a-z0-9-]+$/.test(name)) throw new DomainError('技能包名称无效');
   const directory = mkdtempSync(join(tmpdir(), 'workforce-skill-'));
   try {
     const zip = join(directory, `${name}.zip`);
-    execFileSync('zip', ['-q', '-r', zip, name], { cwd: resolve('skills') });
+    execFileSync('zip', ['-q', '-r', zip, name, '-x', '*/__pycache__/*', '*/test_*.py'], {
+      cwd: resolve('skills'),
+    });
     const body = new FormData();
     body.set('files', new Blob([readFileSync(zip)], { type: 'application/zip' }), `${name}.zip`);
     const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/skills', {
@@ -34,7 +36,7 @@ async function uploadSkill(name: string, key: string, api: MaMemoryApi) {
     const uploaded = raw.data || raw;
     if (typeof uploaded.id !== 'string' || !/^skill-[a-zA-Z0-9_-]+$/.test(uploaded.id))
       throw new DomainError('Skill 上传回执缺少有效 ID，请核查 MA，避免重复上传', 502);
-    return await api.call(`/skills/${encodeURIComponent(uploaded.id)}`);
+    return uploaded;
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -65,10 +67,18 @@ export async function ensureTemplateSkills(
         .find((s: any) => s.name === spec.name)?.id ||
       PLATFORM_SKILLS.find((s) => s.name === spec.name)?.id;
     note(`正在核验 Skill：${spec.name}`);
-    const result = await registry.ensure(`skill:${spec.name}`, '/skills', known, () =>
-      uploadSkill(spec.name, guard(), api),
+    // 包修订使用独立回执，避免复用尚未包含新脚本的旧资源；旧资源保留。
+    const result = await registry.ensure(
+      `skill:${spec.name}${spec.revision ? ':' + spec.revision : ''}`,
+      '/skills',
+      spec.revision ? undefined : known,
+      () => uploadSkill(spec.name, guard()),
     );
-    const skill = result.resource;
+    // 先持久化创建回执，再回读；回读失败不丢 ID、不重复上传。
+    const raw = result.created
+      ? await api.call(`/skills/${encodeURIComponent(result.resource.id)}`)
+      : result.resource;
+    const skill = raw.data || raw;
     if (skill.name !== spec.name || skill.source !== 'custom' || !/^\d+$/.test(String(skill.latest_version)))
       throw new DomainError(`技能 ${spec.name} 的名称或版本不匹配`, 502);
     const normalized = {
