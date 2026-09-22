@@ -1,3 +1,4 @@
+import { MemoryScheduler } from './memory-scheduler.ts';
 import { MaEnvironments, RECOMMENDED_ENVIRONMENT_NAME } from './ma-environments.ts';
 import { SessionMemory } from './session-memory.ts';
 import { MemoryOrganizer } from './memory-organizer.ts';
@@ -79,6 +80,8 @@ const { server, url } = await createWeb(w, {
   environments,
 });
 channels.resume();
+const memoryScheduler = new MemoryScheduler(workspace, organizer, sessionMemory);
+memoryScheduler.start();
 const taskInterval = setInterval(() => {
   try {
     workspace.tick();
@@ -106,6 +109,7 @@ const stop = async () => {
   stopping = true;
   clearInterval(interval);
   clearInterval(taskInterval);
+  memoryScheduler.stop();
   await organizer.stop();
   await channels.stop();
   server.close(() => {

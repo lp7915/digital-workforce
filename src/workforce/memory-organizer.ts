@@ -481,6 +481,12 @@ export class MemoryOrganizer {
                   task: '分别整理人的记忆与事情的记忆。检查真实来访者的姓名、职能和协作特点，通过 write_person_memory 写员工库；事件、决策和进展通过 write_project_memory 写项目库。使用工具读取既有内容，避免重复或覆盖有效事实。',
                   sources: job.sources.map((s: any) => ({ sessionId: s.id, completedAt: s.completedAt })),
                   project: this.memories.owner('projects', job.projectId).name,
+                  targetStore: {
+                    name: this.memories.store('projects', job.projectId, job.storeId).name,
+                    description: this.memories.store('projects', job.projectId, job.storeId).description,
+                  },
+                  routing:
+                    '仅将符合目标记忆库名称、描述及既有内容用途的事情写入该库；不相关内容跳过，不为填充记忆库而重复写入。人物记忆按身份合并，无新增事实不重复写入。',
                 }),
               },
             ],
