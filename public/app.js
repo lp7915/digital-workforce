@@ -459,12 +459,31 @@ document.addEventListener('keydown', (event) => {
         : (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
   focusSelectOption(trigger, options[index]);
 });
+// 全局使用同一套描边图形，角色色按标识稳定分配。
+const iconPaths = {
+  employees:
+    '<rect x="4" y="7" width="16" height="13" rx="4"/><path d="M12 3v4M8 12v2m8-2v2M9 17h6M1 12v4m22-4v4"/>',
+  projects:
+    '<path d="M3 8V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Z"/><path d="M3 10h18"/>',
+  groups: '<path d="M20 11a8 8 0 0 1-8 8H8l-5 3 1-6a8 8 0 1 1 16-5Z"/><path d="M8 10h8M8 14h5"/>',
+  tasks: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  memory: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"/>',
+  skill: '<path d="m12 3 3 6 6 3-6 3-3 6-3-6-6-3 6-3Z"/>',
+  credential: '<rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>',
+  empty: '<path d="m4 8 8-4 8 4v10l-8 4-8-4Z M4 8l8 4 8-4M12 12v10"/>',
+};
+const uiIcon = (kind) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconPaths[kind] || iconPaths.empty}</svg>`;
+const entityMark = (kind, key = '') => {
+  const tone = [...String(key)].reduce((sum, ch) => sum + ch.codePointAt(0), 0) % 4;
+  return `<span class="entity-icon tone-${tone}" aria-hidden="true">${uiIcon(kind)}</span>`;
+};
 const panel = (heading, description, body) =>
   `<section class="panel"><h3>${heading}</h3>${description ? `<p class="muted">${description}</p>` : ''}${body}</section>`;
 const empty = (title, description) =>
-  `<div class="empty"><div class="symbol">◇</div><h3>${title}</h3><p>${description}</p></div>`;
+  `<div class="empty"><div class="symbol">${uiIcon('empty')}</div><h3>${title}</h3><p>${description}</p></div>`;
 const head = (title, description, action = '') =>
-  `<div class="page-head"><div><h1>${esc(title)}</h1><p>${esc(description)}</p></div><div class="actions">${action}</div></div>`;
+  `<div class="page-head"><div class="page-title-group">${entityMark(route().module, title)}<div><h1>${esc(title)}</h1><p>${esc(description)}</p></div></div><div class="actions">${action}</div></div>`;
 const saveBar = () =>
   '<div class="actions form-actions"><small id="save-state">配置保存到本机 SQLite</small><button class="primary" type="submit">保存配置</button></div>';
 function toast(message) {
@@ -821,7 +840,7 @@ function groupDetail(group, section) {
     );
   if (section === 'employees') {
     const employees = group.employeeIds.map((id) => data.employees.find((e) => e.id === id)).filter(Boolean);
-    content = `<div class="section-toolbar"><p class="muted">已关联 ${employees.length} 位数字员工</p></div><div class="grid compact-cards">${employees.map((e) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◈</span>${badge(e.enabled ? '已启用' : '已停用', e.enabled ? 'green' : '')}</div><h3><a href="#employees/${esc(e.id)}">${esc(e.name)}</a></h3><p class="card-description">${esc(e.description || '暂无描述')}</p><div class="card-footer"><span>群数字员工</span><a href="#employees/${esc(e.id)}">查看详情 →</a></div></article>`).join('')}</div>${employees.length ? '' : empty('尚未添加数字员工', '请在飞书中将机器人拉入群聊，收到事件后自动展示。')}`;
+    content = `<div class="section-toolbar"><p class="muted">已关联 ${employees.length} 位数字员工</p></div><div class="grid compact-cards">${employees.map((e) => `<article class="entity-card"><div class="card-top">${entityMark('employees', e.id)}${badge(e.enabled ? '已启用' : '已停用', e.enabled ? 'green' : '')}</div><h3><a href="#employees/${esc(e.id)}">${esc(e.name)}</a></h3><p class="card-description">${esc(e.description || '暂无描述')}</p><div class="card-footer"><span>群数字员工</span><a href="#employees/${esc(e.id)}">查看详情 →</a></div></article>`).join('')}</div>${employees.length ? '' : empty('尚未添加数字员工', '请在飞书中将机器人拉入群聊，收到事件后自动展示。')}`;
   }
   if (section === 'members')
     content = `<div class="section-toolbar"><p class="muted">飞书群成员（人员），数字员工请查看对应标签。</p>${button('刷新成员', 'refresh-group-members', group.id)}</div><div id="group-members-content" aria-live="polite"><p class="muted">正在读取群成员…</p></div>`;
@@ -876,7 +895,7 @@ function groupsOverview() {
       )
       .map(
         (group) =>
-          `<article class="entity-card" data-search="${esc([group.name, group.chatId, projectName(group.projectId), ...group.employeeIds.map(employeeName)].join(' '))}"><div class="card-top"><span class="entity-icon">☏</span>${badge(group.source === 'feishu' ? '飞书群聊' : '本地登记')}</div><h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">${group.projectId ? `<a href="#projects/${esc(group.projectId)}/groups">${esc(projectName(group.projectId))}</a>` : '未关联项目'}</p><p>服务员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions"></div><div class="card-footer"><span>${group.employeeIds.length} 位数字员工</span><a href="#groups/${esc(group.id)}">查看详情 →</a></div></article>`,
+          `<article class="entity-card" data-search="${esc([group.name, group.chatId, projectName(group.projectId), ...group.employeeIds.map(employeeName)].join(' '))}"><div class="card-top">${entityMark('groups', group.id)}${badge(group.source === 'feishu' ? '飞书群聊' : '本地登记')}</div><h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description resource-id" title="${esc(group.chatId)}">${esc(group.chatId)}</p><p class="muted">${group.projectId ? `<a href="#projects/${esc(group.projectId)}/groups">${esc(projectName(group.projectId))}</a>` : '未关联项目'}</p><p>服务员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions"></div><div class="card-footer"><span>${group.employeeIds.length} 位数字员工</span><a href="#groups/${esc(group.id)}">查看详情 →</a></div></article>`,
       )
       .join(
         '',
@@ -902,7 +921,7 @@ function overview(module) {
     items
       .map(
         (item) =>
-          `<article class="entity-card" data-search="${esc(item.name + ' ' + item.description)}"><div class="card-top"><span class="entity-icon">${employees ? '◈' : '▦'}</span>${employees ? badge(item.activeVersion ? '已发布' : '草稿', item.activeVersion ? 'green' : '') : badge(`${item.groups.length} 个群聊`)}</div><h3><a href="#${module}/${item.id}">${esc(item.name)}</a></h3><p class="card-description">${esc(item.description || '暂无描述')}</p><div class="card-footer"><span>${employees ? `${item.skills.filter((s) => s.enabled).length} 项技能 · ${item.memoryStores.length} 个记忆库` : `${item.memoryStores.length} 个记忆库 · ${item.members.length} 位成员`}</span><a href="#${module}/${item.id}" aria-label="查看${esc(item.name)}">查看详情 →</a></div></article>`,
+          `<article class="entity-card" data-search="${esc(item.name + ' ' + item.description)}"><div class="card-top">${entityMark(module, item.id)}${employees ? badge(item.activeVersion ? '已发布' : '草稿', item.activeVersion ? 'green' : '') : badge(`${item.groups.length} 个群聊`)}</div><h3><a href="#${module}/${item.id}">${esc(item.name)}</a></h3><p class="card-description">${esc(item.description || '暂无描述')}</p><div class="card-footer"><span>${employees ? `${item.skills.filter((s) => s.enabled).length} 项技能 · ${item.memoryStores.length} 个记忆库` : `${item.memoryStores.length} 个记忆库 · ${item.members.length} 位成员`}</span><a href="#${module}/${item.id}" aria-label="查看${esc(item.name)}">查看详情 →</a></div></article>`,
       )
       .join('') +
     `</div><div id="filter-empty" hidden>${empty('没有匹配结果', '换个关键词试试。')}</div>`
@@ -957,10 +976,10 @@ function employeeDetail(e, section) {
       })
       .join('');
   if (section === 'skills')
-    content = `<div class="section-toolbar"><p class="muted">使用当前方舟 APIKey 从 MA 选择真实 Skill。修改后通过页面顶部「MA 配置」同步到远端 Agent。</p>${button('＋ 从 MA 添加技能', 'add-skill')}</div><div class="grid compact-cards">${e.skills.map((skill) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◇</span>${badge(skill.enabled ? '已启用' : '已停用', skill.enabled ? 'green' : '')}</div><h3>${esc(skill.name)}</h3><p class="card-description">${esc(skill.description)}</p><p class="muted">MA · v${esc(skill.version || '')}<br>${esc(skill.id)}</p><div class="actions">${button(skill.enabled ? '停用' : '启用', 'toggle-skill', skill.id)}${button('移除', 'remove-skill', skill.id)}</div></article>`).join('')}</div>${!e.skills.length ? empty('暂无 MA 技能', '从 MA 技能列表选择并绑定，不使用本地模拟技能。') : ''}`;
+    content = `<div class="section-toolbar"><p class="muted">使用当前方舟 APIKey 从 MA 选择真实 Skill。修改后通过页面顶部「MA 配置」同步到远端 Agent。</p>${button('＋ 从 MA 添加技能', 'add-skill')}</div><div class="grid compact-cards">${e.skills.map((skill) => `<article class="entity-card"><div class="card-top">${entityMark('skill', skill.id)}${badge(skill.enabled ? '已启用' : '已停用', skill.enabled ? 'green' : '')}</div><h3>${esc(skill.name)}</h3><p class="card-description">${esc(skill.description)}</p><p class="muted">MA · v${esc(skill.version || '')}<br>${esc(skill.id)}</p><div class="actions">${button(skill.enabled ? '停用' : '启用', 'toggle-skill', skill.id)}${button('移除', 'remove-skill', skill.id)}</div></article>`).join('')}</div>${!e.skills.length ? empty('暂无 MA 技能', '从 MA 技能列表选择并绑定，不使用本地模拟技能。') : ''}`;
   if (section === 'memories') content = memoryList(e, false);
   if (section === 'credentials')
-    content = `<div class="section-toolbar"><p class="muted">仅登记凭证名称和引用标识，不接收或保存密钥。</p>${button('＋ 登记凭证', 'add-credential')}</div><div class="grid compact-cards">${e.credentials.map((credential) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">♧</span>${badge('待后端接入')}</div><h3>${esc(credential.name)}</h3><p class="card-description">${esc(credential.reference)}</p><div class="card-footer"><span>凭证引用</span>${button('移除', 'remove-credential', credential.id)}</div></article>`).join('')}</div>${!e.credentials.length ? empty('尚未登记凭证', '登记凭证引用后，由后端完成安全存储与授权。') : ''}`;
+    content = `<div class="section-toolbar"><p class="muted">仅登记凭证名称和引用标识，不接收或保存密钥。</p>${button('＋ 登记凭证', 'add-credential')}</div><div class="grid compact-cards">${e.credentials.map((credential) => `<article class="entity-card"><div class="card-top">${entityMark('credential', credential.id)}${badge('待后端接入')}</div><h3>${esc(credential.name)}</h3><p class="card-description">${esc(credential.reference)}</p><div class="card-footer"><span>凭证引用</span>${button('移除', 'remove-credential', credential.id)}</div></article>`).join('')}</div>${!e.credentials.length ? empty('尚未登记凭证', '登记凭证引用后，由后端完成安全存储与授权。') : ''}`;
   if (section === 'versions')
     content = `<div class="section-toolbar"><p class="muted">保存当前配置快照，支持本地版本发布与切换。</p>${button('发布版本', 'publish', '', true)}</div><div class="version-stack">${[
       ...e.versions,
@@ -1138,7 +1157,7 @@ function memoryList(owner, project) {
     return `<p class="error">${esc(memoryLoadError)}</p>${button('重新读取', 'refresh-memory')}`;
   const store = owner.memoryStores.find((item) => item.id === selectedMemoryStore);
   if (!store)
-    return `<div class="section-toolbar"><p class="muted">${project ? '项目' : '员工'}记忆按记忆库组织，每个条目包含路径和文本内容。</p><div class="actions">${button('刷新', 'refresh-memory')}${button('＋ 创建记忆库', 'add-store', '', true)}</div></div><div class="grid compact-cards">${owner.memoryStores.map((item) => `<article class="entity-card"><span class="entity-icon">▤</span><h3>${esc(item.name)}</h3><p class="card-description">${esc(item.description || '通过路径组织长期记忆')}</p><p class="muted">${item.memoryCount ?? 0} 个条目 · MA</p><div class="actions">${button('查看条目', 'open-store', item.id, true)}${button('编辑', 'edit-store', item.id)}${button('删除库', 'delete-ma-store', item.id)}</div></article>`).join('')}</div>`;
+    return `<div class="section-toolbar"><p class="muted">${project ? '项目' : '员工'}记忆按记忆库组织，每个条目包含路径和文本内容。</p><div class="actions">${button('刷新', 'refresh-memory')}${button('＋ 创建记忆库', 'add-store', '', true)}</div></div><div class="grid compact-cards">${owner.memoryStores.map((item) => `<article class="entity-card">${entityMark('memory', item.id)}<h3>${esc(item.name)}</h3><p class="card-description">${esc(item.description || '通过路径组织长期记忆')}</p><p class="muted">${item.memoryCount ?? 0} 个条目 · MA</p><div class="actions">${button('查看条目', 'open-store', item.id, true)}${button('编辑', 'edit-store', item.id)}${button('删除库', 'delete-ma-store', item.id)}</div></article>`).join('')}</div>`;
   const entries = owner.memories.filter((entry) => entry.storeId === store.id);
   const entry = entries.find((item) => item.id === selectedMemoryEntry) || entries[0];
   selectedMemoryEntry = entry?.id || '';
@@ -1151,7 +1170,7 @@ function projectDetail(p, section) {
       `<div class="actions">${button('整理近期 Session', 'organize-memory', p.id)}</div>` +
       memoryList(p, true);
   if (section === 'groups')
-    content = `<div class="section-toolbar"><p class="muted">群内员工加载自身记忆和本项目记忆；关联变更后请使用 /new。</p><div class="actions">${button('＋ 从飞书关联群聊', 'browse-feishu-groups', '', true)}</div></div><div class="grid compact-cards">${p.groups.map((group) => `<article class="entity-card"><span class="entity-icon">▦</span><h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">数字员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('添加数字员工', 'invite-project-group', group.id, true)}${button('解除关联', 'remove-group', group.id)}</div></article>`).join('')}</div>${!p.groups.length ? empty('尚未关联群聊', '将群聊关联到项目，组织项目协作。') : ''}`;
+    content = `<div class="section-toolbar"><p class="muted">群内员工加载自身记忆和本项目记忆；关联变更后请使用 /new。</p><div class="actions">${button('＋ 从飞书关联群聊', 'browse-feishu-groups', '', true)}</div></div><div class="grid compact-cards">${p.groups.map((group) => `<article class="entity-card">${entityMark('groups', group.id)}<h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description resource-id" title="${esc(group.chatId)}">${esc(group.chatId)}</p><p class="muted">数字员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('添加数字员工', 'invite-project-group', group.id, true)}${button('解除关联', 'remove-group', group.id)}</div></article>`).join('')}</div>${!p.groups.length ? empty('尚未关联群聊', '将群聊关联到项目，组织项目协作。') : ''}`;
   if (section === 'members')
     content = `<div class="section-toolbar"><p class="muted">管理谁可以查看、改写记忆，以及维护成员。</p>${button('＋ 添加成员', 'add-member', '', true)}</div><div class="permission-legend"><span><b>查看</b> 只读项目记忆</span><span><b>改写</b> 可新增、编辑和删除记忆</span><span><b>管理</b> 改写记忆及管理成员</span></div><p class="demo-note">后台使用本机管理员身份；群里触发记忆整理时，将按消息发送者的飞书用户 ID 校验改写权限。</p><div class="grid compact-cards">${p.members.map((member) => `<article class="entity-card"><div class="card-top"><span class="member-avatar">${esc(member.name.slice(0, 1))}</span>${badge({ read: '查看', write: '改写', manage: '管理' }[member.permission])}</div><h3>${esc(member.name)}</h3><p class="card-description">${esc(member.account)}</p><div class="actions">${button('修改权限', 'edit-member', member.id)}${button('移除', 'remove-member', member.id)}</div></article>`).join('')}</div>`;
   return (
