@@ -157,4 +157,42 @@ export class FeishuGroups {
   async add(_chatId: string, _employeeId: string) {
     throw new DomainError('工作台仅查看，请在飞书中添加或移除机器人', 405);
   }
+
+  projectGroup(projectId: string, groupId: string) {
+    const state = this.workspace.read().state;
+    const group = state.groups.find((g: any) => g.id === groupId && g.projectId === projectId);
+    if (!group || !state.projects.some((p: any) => p.id === projectId))
+      throw new DomainError('项目群聊不存在或关联已变化', 409);
+    return group;
+  }
+  async invite(projectId: string, groupId: string, employeeId: string) {
+    const group = this.projectGroup(projectId, groupId);
+    const chatId = group.chatId;
+    const employee = this.workspace.read().state.employees.find((e: any) => e.id === employeeId);
+    if (!employee?.enabled) throw new DomainError('请选择已启用的数字员工');
+    const binding = this.channels.view(employeeId);
+    if (binding.status !== 'connected' || !binding.appId)
+      throw new DomainError('请先完成该数字员工的飞书连接');
+    const user = await this.user();
+    const chat = await this.detail(chatId, user.openId);
+    if (!chat) throw new DomainError('当前用户已无此群管理权限，无法添加数字员工。', 403);
+    this.projectGroup(projectId, groupId);
+    const result = await this.call([
+      'chat.members',
+      'create',
+      '--chat-id',
+      chatId,
+      '--member-id-type',
+      'app_id',
+      '--succeed-type',
+      '2',
+      '--data',
+      JSON.stringify({ id_list: [binding.appId] }),
+    ]);
+    if (result.pending_approval_id_list?.length)
+      throw new DomainError('入群申请正在等待飞书审批，审批完成后通过进群事件同步。', 409);
+    if (result.invalid_id_list?.length || result.not_existed_id_list?.length)
+      throw new DomainError('机器人无法入群，请检查应用已发布且对当前用户可见。', 409);
+    return this.persist(chat, employeeId);
+  }
 }

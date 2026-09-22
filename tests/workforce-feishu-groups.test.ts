@@ -161,3 +161,51 @@ test('工作台禁用邀请机器人，且不请求飞书写接口', async () =>
     f.workspace.close();
   }
 });
+
+async function projectFixture() {
+  const f = fixture();
+  const current = f.workspace.read();
+  current.state.projects.push({
+    id: 'p',
+    name: '项目',
+    groups: [],
+    memoryStores: [],
+    memories: [],
+    members: [{ id: 'm', name: '负责人', account: 'local-admin', permission: 'manage' }],
+  });
+  f.workspace.save(current.state, current.revision);
+  await f.service.import('oc_owner', 'p');
+  return { ...f, groupId: f.workspace.read().state.groups[0].id };
+}
+test('项目内邀请使用服务端 App ID，成功后更新在群状态，不建立项目员工名单', async () => {
+  const f = await projectFixture();
+  try {
+    await f.service.invite('p', f.groupId, 'e');
+    await f.service.invite('p', f.groupId, 'e');
+    assert.deepEqual(f.workspace.read().state.groups[0].employeeIds, ['e']);
+    assert.deepEqual(f.workspace.read().state.projects[0].employees, []);
+    const call = f.calls.find((args) => args.includes('create'))!;
+    assert.deepEqual(JSON.parse(call[call.indexOf('--data') + 1]), { id_list: ['cli_bound'] });
+    await assert.rejects(f.service.invite('other', f.groupId, 'e'), /关联已变化/);
+  } finally {
+    f.workspace.close();
+  }
+});
+test('项目邀请待审批、无效机器人及管理权限撤回不写入在群状态', async () => {
+  const f = await projectFixture();
+  try {
+    for (const response of [
+      { pending_approval_id_list: ['cli_bound'] },
+      { invalid_id_list: ['cli_bound'] },
+      new Error('failed'),
+    ]) {
+      f.response(response);
+      await assert.rejects(f.service.invite('p', f.groupId, 'e'));
+      assert.deepEqual(f.workspace.read().state.groups[0].employeeIds, []);
+    }
+    f.role('member');
+    await assert.rejects(f.service.invite('p', f.groupId, 'e'), /管理权限/);
+  } finally {
+    f.workspace.close();
+  }
+});

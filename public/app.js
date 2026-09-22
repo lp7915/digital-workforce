@@ -256,7 +256,11 @@ async function request(path, method = 'GET', body) {
     method,
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    signal: AbortSignal.timeout(path.startsWith('/feishu-groups') ? 120000 : 15000),
+    signal: AbortSignal.timeout(
+      path.startsWith('/feishu-groups') || /^\/projects\/[^/]+\/groups\/[^/]+\/employees$/.test(path)
+        ? 120000
+        : 15000,
+    ),
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || '本机服务请求失败');
@@ -1147,7 +1151,7 @@ function projectDetail(p, section) {
       `<div class="actions">${button('整理近期 Session', 'organize-memory', p.id)}</div>` +
       memoryList(p, true);
   if (section === 'groups')
-    content = `<div class="section-toolbar"><p class="muted">群内员工加载自身记忆和本项目记忆；关联变更后请使用 /new。</p><div class="actions">${button('＋ 从飞书关联群聊', 'browse-feishu-groups', '', true)}</div></div><div class="grid compact-cards">${p.groups.map((group) => `<article class="entity-card"><span class="entity-icon">▦</span><h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">数字员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('解除关联', 'remove-group', group.id)}</div></article>`).join('')}</div>${!p.groups.length ? empty('尚未关联群聊', '将群聊关联到项目，组织项目协作。') : ''}`;
+    content = `<div class="section-toolbar"><p class="muted">群内员工加载自身记忆和本项目记忆；关联变更后请使用 /new。</p><div class="actions">${button('＋ 从飞书关联群聊', 'browse-feishu-groups', '', true)}</div></div><div class="grid compact-cards">${p.groups.map((group) => `<article class="entity-card"><span class="entity-icon">▦</span><h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">数字员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('添加数字员工', 'invite-project-group', group.id, true)}${button('解除关联', 'remove-group', group.id)}</div></article>`).join('')}</div>${!p.groups.length ? empty('尚未关联群聊', '将群聊关联到项目，组织项目协作。') : ''}`;
   if (section === 'members')
     content = `<div class="section-toolbar"><p class="muted">管理谁可以查看、改写记忆，以及维护成员。</p>${button('＋ 添加成员', 'add-member', '', true)}</div><div class="permission-legend"><span><b>查看</b> 只读项目记忆</span><span><b>改写</b> 可新增、编辑和删除记忆</span><span><b>管理</b> 改写记忆及管理成员</span></div><p class="demo-note">后台使用本机管理员身份；群里触发记忆整理时，将按消息发送者的飞书用户 ID 校验改写权限。</p><div class="grid compact-cards">${p.members.map((member) => `<article class="entity-card"><div class="card-top"><span class="member-avatar">${esc(member.name.slice(0, 1))}</span>${badge({ read: '查看', write: '改写', manage: '管理' }[member.permission])}</div><h3>${esc(member.name)}</h3><p class="card-description">${esc(member.account)}</p><div class="actions">${button('修改权限', 'edit-member', member.id)}${button('移除', 'remove-member', member.id)}</div></article>`).join('')}</div>`;
   return (
@@ -1278,6 +1282,17 @@ function editDialog(kind, item = {}) {
       field('标题（可选）', 'title', item.title) +
       field('来源说明', 'source', item.source);
   }
+  if (kind === 'project-invite') {
+    title = '添加数字员工 · ' + item.name;
+    fields =
+      '<p class="muted">将员工机器人实际加入此飞书群，入群后加载该群所属项目的记忆。</p>' +
+      select(
+        '数字员工',
+        'employeeId',
+        '',
+        item.availableEmployees.filter((e) => !item.employeeIds.includes(e.id)).map((e) => [e.id, e.name]),
+      );
+  }
   if (kind === 'member') {
     title = item.id ? '修改成员权限' : '添加成员';
     fields =
@@ -1304,7 +1319,7 @@ function editDialog(kind, item = {}) {
   }
   modal(
     title,
-    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'group-employees' ? '确认添加到飞书群' : kind === 'publish' ? '确认发布' : kind === 'memory-info' ? '应用' : '保存'}</button></div><p class="demo-note">${kind === 'group-employees' ? '入群成功后保存服务关联，机器人将能接收该群中的消息。' : kind === 'memory-info' ? '应用后，点击内容区顶部的保存，与正文和路径一起保存。' : ['memory', 'store'].includes(kind) ? '直接保存到 MA 记忆库' : '保存到本机工作台'}</p></form>`,
+    `<form id="dialog-form" data-kind="${kind}" data-id="${esc(item.id || '')}" data-owner="${esc(owner?.id || '')}">${fields}<div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">${kind === 'project-invite' ? '确认添加到飞书群' : kind === 'publish' ? '确认发布' : kind === 'memory-info' ? '应用' : '保存'}</button></div><p class="demo-note">${kind === 'project-invite' ? '入群成功后保存服务关联，机器人将能接收该群中的消息。' : kind === 'memory-info' ? '应用后，点击内容区顶部的保存，与正文和路径一起保存。' : ['memory', 'store'].includes(kind) ? '直接保存到 MA 记忆库' : '保存到本机工作台'}</p></form>`,
   );
 }
 function confirmAction(title, text, action, id) {
@@ -1386,6 +1401,23 @@ document.addEventListener('click', async (event) => {
   if (action === 'new-task') return editDialog('task');
   if (action === 'browse-feishu-groups') return browseFeishuGroups();
   if (action === 'more-feishu-groups') return browseFeishuGroups(true);
+  if (action === 'invite-project-group') {
+    target.disabled = true;
+    const projectId = owner.id;
+    try {
+      const result = await request(`/projects/${projectId}/groups/${id}/employees`);
+      if (route().module !== 'projects' || route().id !== projectId) return;
+      const group = data.groups.find((g) => g.id === id);
+      if (!result.employees.some((e) => !group.employeeIds.includes(e.id)))
+        return toast('暂无可添加的员工，请先完成其他员工的飞书连接');
+      editDialog('project-invite', { ...group, availableEmployees: result.employees });
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      target.disabled = false;
+    }
+    return;
+  }
   if (action === 'import-feishu-group') {
     target.disabled = true;
     try {
@@ -1681,6 +1713,28 @@ document.addEventListener('submit', async (event) => {
   if (form.id !== 'dialog-form' && form.id !== 'memory-entry-form') return;
   const kind = form.dataset.kind,
     id = form.dataset.id;
+  if (kind === 'project-invite') {
+    if (!values.employeeId) return toast('请选择数字员工');
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    submit.textContent = '正在添加…';
+    try {
+      acceptServer(
+        await request(`/projects/${owner.id}/groups/${id}/employees`, 'POST', {
+          employeeId: values.employeeId,
+        }),
+      );
+      closeModal();
+      render();
+      toast('数字员工已加入飞书群');
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = '确认添加到飞书群';
+    }
+    return;
+  }
   if (kind === 'task') {
     const submit = form.querySelector('[type="submit"]');
     submit.disabled = true;

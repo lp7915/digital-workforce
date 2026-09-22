@@ -210,6 +210,18 @@ export async function createWeb(
           );
         if (path === '/api/workspace/feishu-groups/employees')
           throw new DomainError('请在飞书中添加或移除机器人，工作台仅同步展示', 405);
+        const projectInvite = path.match(/^\/api\/workspace\/projects\/([^/]+)\/groups\/([^/]+)\/employees$/);
+        if (projectInvite && options.feishuGroups) {
+          const projectId = decodeURIComponent(projectInvite[1]);
+          const groupId = decodeURIComponent(projectInvite[2]);
+          options.feishuGroups.projectGroup(projectId, groupId);
+          if (method === 'GET') return json(res, { employees: options.feishuGroups.employees() });
+          if (method === 'POST') {
+            const input = await body(req);
+            if (typeof input.employeeId !== 'string') throw new DomainError('请选择数字员工');
+            return json(res, await options.feishuGroups.invite(projectId, groupId, input.employeeId));
+          }
+        }
         const unlinkGroup = path.match(/^\/api\/workspace\/projects\/([^/]+)\/groups\/([^/]+)$/);
         if (unlinkGroup && method === 'DELETE') {
           await body(req);
