@@ -1695,3 +1695,49 @@ code {
     scroll-behavior: auto !important;
   }
 }
+
+/* 群聊筛选集中靠右，避免各控件被均分到整行。 */
+.group-filters {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-left: auto;
+}
+.group-filters .select-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  white-space: nowrap;
+}
+.group-filters .ui-select {
+  width: 150px;
+  min-width: 0;
+}
+.group-filters .search {
+  width: 240px;
+}
+@media (max-width: 1000px) {
+  .group-toolbar {
+    flex-wrap: wrap;
+  }
+  .group-filters {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 760px) {
+  .group-filters {
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+  .group-filters .select-field {
+    flex: 1;
+  }
+  .group-filters .ui-select {
+    flex: 1;
+  }
+  .group-toolbar .group-filters .search {
+    width: 100%;
+  }
+}

@@ -867,7 +867,7 @@ let groupProjectFilter = '',
 function groupsOverview() {
   return (
     head('群聊', '查看数字员工在哪些飞书群工作。', '') +
-    `<p class="demo-note">工作现场按机器人进退群事件同步。请在飞书中添加或移除机器人；项目关联在项目详情中维护。</p><div class="toolbar"><span class="muted">共 ${data.groups.length} 个群聊</span>${select('项目', 'groupProjectFilter', groupProjectFilter, [['', '全部项目'], ['unassigned', '未关联项目'], ...data.projects.map((p) => [p.id, p.name])])}${select('数字员工', 'groupEmployeeFilter', groupEmployeeFilter, [['', '全部员工'], ...data.employees.map((e) => [e.id, e.name])])}<input id="search" class="search" aria-label="搜索群聊" placeholder="搜索群聊、项目或员工…" value="${esc(search)}" /></div><div class="grid compact-cards">${data.groups
+    `<p class="demo-note">工作现场按机器人进退群事件同步。请在飞书中添加或移除机器人；项目关联在项目详情中维护。</p><div class="toolbar group-toolbar"><span class="muted">共 ${data.groups.length} 个群聊</span><div class="group-filters">${select('项目', 'groupProjectFilter', groupProjectFilter, [['', '全部项目'], ['unassigned', '未关联项目'], ...data.projects.map((p) => [p.id, p.name])])}${select('数字员工', 'groupEmployeeFilter', groupEmployeeFilter, [['', '全部员工'], ...data.employees.map((e) => [e.id, e.name])])}<input id="search" class="search" aria-label="搜索群聊" placeholder="搜索群聊、项目或员工…" value="${esc(search)}" /></div></div><div class="grid compact-cards">${data.groups
       .filter(
         (g) =>
           (!groupProjectFilter ||
