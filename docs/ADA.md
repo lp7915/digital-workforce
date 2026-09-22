@@ -23,8 +23,8 @@
 | 技能 | MA ID | 版本 |
 |---|---|---|
 | ada-artist-profile | skill-20260921120354-hz5qx | 1 |
-| ada-brand-fit | skill-20260921120505-zgjrr | 1 |
-| ada-campaign-review | skill-20260921120505-jl7fx | 1 |
+| ada-brand-fit | skill-20260922025400-8bwc4 | 1 |
+| ada-campaign-review | skill-20260922025401-bcjd7 | 1 |
 
 模板不含真实艺人事实、平台实时指标、商务报价、档期或行业基准。实际分析需用户提供文件、授权文档或可核验的公开来源。记忆模板迁移至 MA 原生 Memory Store，创建 Session 时作为只读资源挂载。工作台仅保存记忆库关联，正文增删改查直接调用 MA API；修改库关联或员工配置后，须使用 `/new` 创建新 Session。
 
