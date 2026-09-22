@@ -251,3 +251,113 @@ test('已有员工配置可同步 MA，重复请求不重复更新，页面能�
     w.close();
   }
 });
+
+test('已有应用验证后复用准备与连接流程，不创建新应用且不回传密钥', async () => {
+  const w = workspace();
+  let created = 0,
+    prepared = 0,
+    connected = 0;
+  const channels = new WorkspaceChannels(w, {
+    dataDir: '/tmp',
+    register: async () => {
+      created++;
+      throw new Error('不应创建');
+    },
+    fetcher: async (url, options) => {
+      assert.equal(String(url), 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal');
+      assert.equal(JSON.parse(String(options?.body)).app_id, 'cli_existing123');
+      return Response.json({ code: 0, tenant_access_token: 'test-token' });
+    },
+    provision: async (b) => {
+      assert.equal(b.appSecret, 'test-secret');
+      prepared++;
+    },
+    connect: async () => {
+      connected++;
+      return async () => {};
+    },
+  });
+  try {
+    await channels.bindExisting('e', { appId: 'cli_existing123', appSecret: 'test-secret' });
+    await until(() => channels.view('e').status === 'connected');
+    assert.equal(created, 0);
+    assert.equal(prepared, 1);
+    assert.equal(connected, 1);
+    assert.ok(!JSON.stringify(channels.view('e')).includes('test-secret'));
+    await assert.rejects(
+      channels.bindExisting('e', { appId: 'cli_other123', appSecret: 'new-secret' }),
+      /已绑定/,
+    );
+    assert.equal(channels.view('e').appId, 'cli_existing123');
+  } finally {
+    await channels.stop();
+    w.close();
+  }
+});
+
+test('已有应用凭证错误不保存绑定，允许修正后重试', async () => {
+  const w = workspace();
+  let valid = false;
+  const channels = new WorkspaceChannels(w, {
+    dataDir: '/tmp',
+    fetcher: async () =>
+      Response.json(
+        valid ? { code: 0, tenant_access_token: 'token' } : { code: 10014, msg: 'sensitive-response' },
+      ),
+    provision: async () => {},
+    connect: async () => async () => {},
+  });
+  try {
+    await assert.rejects(
+      channels.bindExisting('e', { appId: 'cli_existing123', appSecret: 'wrong' }),
+      /验证失败/,
+    );
+    assert.equal(channels.view('e').status, 'unbound');
+    valid = true;
+    await channels.bindExisting('e', { appId: 'cli_existing123', appSecret: 'correct' });
+    await until(() => channels.view('e').status === 'connected');
+  } finally {
+    await channels.stop();
+    w.close();
+  }
+});
+
+test('已有应用并发接入和重复绑定均被拦截', async () => {
+  const w = workspace();
+  const snapshot = w.read();
+  snapshot.state.employees.push({
+    ...structuredClone(snapshot.state.employees[0]),
+    id: 'second',
+    name: '其他员工',
+  });
+  w.save(snapshot.state, snapshot.revision);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const channels = new WorkspaceChannels(w, {
+    dataDir: '/tmp',
+    fetcher: async () => {
+      await gate;
+      return Response.json({ code: 0, tenant_access_token: 'token' });
+    },
+    provision: async () => {},
+    connect: async () => async () => {},
+  });
+  try {
+    const first = channels.bindExisting('e', { appId: 'cli_existing123', appSecret: 'secret' });
+    await assert.rejects(
+      channels.bindExisting('second', { appId: 'cli_existing123', appSecret: 'secret' }),
+      /其他数字员工或正在接入/,
+    );
+    release();
+    await first;
+    await until(() => channels.view('e').status === 'connected');
+    await assert.rejects(
+      channels.bindExisting('second', { appId: 'cli_existing123', appSecret: 'secret' }),
+      /其他数字员工/,
+    );
+  } finally {
+    release();
+    await channels.stop();
+    w.close();
+  }
+});

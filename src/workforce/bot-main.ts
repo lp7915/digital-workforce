@@ -126,6 +126,7 @@ const accessAllowed = (m: IncomingMessage) =>
     ? config.allowedChatIds.includes(m.conversationId)
     : config.allowedUserIds.includes(m.senderId));
 gateway = new Gateway(store, ark, (m, outbound, observer) => channel.reply(m, outbound, observer), {
+  reportDiagnostics: true,
   appId: config.appId,
   agentId: release.content.agentId,
   environmentId: config.environmentId,

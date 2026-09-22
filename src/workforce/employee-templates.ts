@@ -1,3 +1,4 @@
+import { createSocialEmployee, SOCIAL_SKILL_NAMES, socialDependencies } from './social-template.ts';
 import { randomUUID } from 'node:crypto';
 import { DomainError } from './domain.ts';
 import type { LocalWorkspace } from './workspace.ts';
@@ -110,13 +111,66 @@ export function createAdaEmployee() {
   };
 }
 
-export function initializeAda(workspace: LocalWorkspace) {
+export const employeeTemplates = [
+  {
+    key: 'ada',
+    templateId: 'ada-artist-analysis-v1',
+    name: 'ADA',
+    description: '艺人画像、品牌适配、候选对比与营销效果复盘。',
+    skills: ['ada-artist-profile', 'ada-brand-fit', 'ada-campaign-review'].map((name) => ({
+      name,
+      tags: ['ada'],
+    })),
+    dependencies: [
+      {
+        name: '艺人数据',
+        description: '使用用户上传或获授权的研究资料，商业数据接口、报价和档期需另行接入。',
+        status: '待提供业务资料',
+      },
+      {
+        name: '项目背景',
+        description: '在项目记忆中维护品牌目标、预算和候选范围，关联群聊后加载。',
+        status: '按项目配置',
+      },
+    ],
+    create: createAdaEmployee,
+  },
+  {
+    key: 'social-trends',
+    templateId: 'social-trends-weekly-v1',
+    name: '社媒热点分析员工',
+    description: '数据核验、事件合并、四维洞察与周报生产；预置依赖契约和交付模板。',
+    skills: SOCIAL_SKILL_NAMES.map((name) => ({
+      name,
+      tags: ['social-trends'],
+      ...(name === 'social-trend-report' ? { revision: 'validator-v2' } : {}),
+    })),
+    dependencies: socialDependencies,
+    create: createSocialEmployee,
+  },
+];
+
+export function employeeTemplate(key: string) {
+  const template = employeeTemplates.find((t) => t.key === key);
+  if (!template) throw new DomainError('员工模板不存在', 404);
+  return template;
+}
+
+export function initializeEmployeeTemplate(workspace: LocalWorkspace, key: string) {
+  const template = employeeTemplate(key);
   const current = workspace.read();
-  const existing = current.state.employees.find((e: any) => e.templateId === 'ada-artist-analysis-v1');
+  const existing = current.state.employees.find((e: any) => e.templateId === template.templateId);
   if (existing) return { ...current, employeeId: existing.id, created: false };
-  if (current.state.employees.some((e: any) => e.name.trim().toUpperCase() === 'ADA'))
-    throw new DomainError('已存在名为 ADA 的员工，请先修改其名称；初始化不会覆盖已有配置。', 409);
-  const employee = createAdaEmployee();
+  if (current.state.employees.some((e: any) => e.name.trim().toLowerCase() === template.name.toLowerCase()))
+    throw new DomainError(
+      `已存在名为 ${template.name} 的员工，请先修改其名称；初始化不会覆盖已有配置。`,
+      409,
+    );
+  const employee = template.create();
   current.state.employees.push(employee);
   return { ...workspace.save(current.state, current.revision), employeeId: employee.id, created: true };
+}
+
+export function initializeAda(workspace: LocalWorkspace) {
+  return initializeEmployeeTemplate(workspace, 'ada');
 }

@@ -12,3 +12,10 @@ export const REQUIRED_CONVERSATION_SCOPES = [
 export function missingConversationScopes(granted: Set<string>) {
   return REQUIRED_CONVERSATION_SCOPES.filter((scope) => !granted.has(scope));
 }
+
+// 消息对话可用不代表进退群事件具备投递权限。
+export function hasGroupEventScope(granted: Set<string>) {
+  return ['im:chat.members:bot_access', 'im:chat:readonly', 'im:chat:read', 'im:chat'].some((scope) =>
+    granted.has(scope),
+  );
+}

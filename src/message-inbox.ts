@@ -32,7 +32,7 @@ export type InboxTask = {
   delivery?: ReplyDeliveryState;
   replyInspection?: ReplyObservation;
   inspection?: { checkedAt: number; observation: RunInspection };
-  resolution?: { action: "discard"; actor: "local_admin"; at: number; runCheckedAt: number };
+  resolution?: { action: "discard"; actor: "local_admin" | "conversation_user"; at: number; runCheckedAt: number };
 };
 type Row = Record<string, unknown>;
 const states = new Set<InboxState>(["queued", "preparing", "dispatched", "awaiting_authorization", "completed", "failed", "uncertain"]);
@@ -108,6 +108,20 @@ export class MessageInbox {
     if (!task || task.state !== "queued" || task.revision !== expected.revision || hasDispatchEvidence(task)) {
       throw new Error("已撤回消息已开始处理或版本变化，不能取消排队");
     }
+    return this.save(task, { ...task, owner: this.runtimeOwner(), state: "failed" });
+  }
+
+  cancelForReset(expected: InboxTask): InboxTask {
+    this.runtimeOwner();
+    const task = this.get(expected.id);
+    if (!task || task.revision !== expected.revision || task.state !== expected.state)
+      throw new Error("任务状态已变化，请重新发送 /new 核查");
+    if (task.state === "queued") return this.cancelQueued(task);
+    if (task.state === "uncertain" && task.interruptedAt === "dispatched")
+      return this.discardInspection(task, "conversation_user");
+    if (task.state !== "uncertain" || task.interruptedAt !== "preparing" || hasDispatchEvidence(task)
+      || task.preparationPlan?.steps.some(step => step.state === "pending" && step.kind !== "observation"))
+      throw new Error("原任务仍有未核实的运行或外部准备操作，暂不能重置");
     return this.save(task, { ...task, owner: this.runtimeOwner(), state: "failed" });
   }
 
@@ -271,7 +285,7 @@ export class MessageInbox {
     return this.save(task, { ...task, owner: this.runtimeOwner(), state: "completed" });
   }
 
-  discardInspection(expected: InboxTask): InboxTask {
+  discardInspection(expected: InboxTask, actor: "local_admin" | "conversation_user" = "local_admin"): InboxTask {
     const task = this.expectedUncertain(expected), inspection = task.inspection, now = Date.now();
     if (task.interruptedAt !== "dispatched" || !task.sessionId || !task.requestFingerprint || !inspection
       || inspection.observation.status !== "ended" || inspection.observation.result.authorizationRequired
@@ -283,7 +297,7 @@ export class MessageInbox {
     this.resultFingerprint(inspection.observation.result);
     // 放弃不补造回复确认，不撤销已经发生的外部业务操作。
     return this.save(task, { ...task, owner: this.runtimeOwner(), state: "failed",
-      resolution: { action: "discard", actor: "local_admin", at: now, runCheckedAt: inspection.checkedAt } });
+      resolution: { action: "discard", actor, at: now, runCheckedAt: inspection.checkedAt } });
   }
 
   listPending(channelType: string, installationId: string, agentId: string, after = 0): { tasks: InboxTask[]; next?: number } {
@@ -478,7 +492,7 @@ export class MessageInbox {
           if (credential?.state === "completed") validateAuthorizationBinding(message, credential.output);
           if (payload.version !== 3 || payload.preparation !== undefined
             || !((metadata.state === "preparing" && metadata.interruptedAt === undefined)
-              || (metadata.state === "uncertain" && metadata.interruptedAt === "preparing"))
+              || (["uncertain", "failed"].includes(metadata.state) && metadata.interruptedAt === "preparing"))
             || hasDispatchEvidence({ ...payload, ...metadata }) || typeof message.text !== "string" || message.text.trim().startsWith("/")) {
             throw new Error("invalid preparation plan state");
           }
@@ -487,7 +501,7 @@ export class MessageInbox {
           validatePreparation(payload.preparation);
           if (payload.preparation.userAuthorization) validateAuthorizationBinding(message, payload.preparation.userAuthorization);
           if (!((metadata.state === "preparing" && metadata.interruptedAt === undefined)
-              || (metadata.state === "uncertain" && metadata.interruptedAt === "preparing"))
+              || (["uncertain", "failed"].includes(metadata.state) && metadata.interruptedAt === "preparing"))
             || hasDispatchEvidence({ ...payload, ...metadata }) || typeof message.text !== "string" || message.text.trim().startsWith("/")) {
             throw new Error("invalid preparation state");
           }
@@ -510,7 +524,7 @@ export class MessageInbox {
         }
         if (payload.resolution) {
           const value = payload.resolution;
-          if (metadata.state !== "failed" || value.action !== "discard" || value.actor !== "local_admin"
+          if (metadata.state !== "failed" || value.action !== "discard" || !["local_admin", "conversation_user"].includes(value.actor)
             || !Number.isSafeInteger(value.at) || !Number.isSafeInteger(value.runCheckedAt) || value.runCheckedAt <= 0
             || value.at < value.runCheckedAt || value.at - value.runCheckedAt > 30_000
             || payload.inspection?.checkedAt !== value.runCheckedAt || payload.inspection?.observation?.status !== "ended"

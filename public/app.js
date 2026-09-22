@@ -257,8 +257,10 @@ async function request(path, method = 'GET', body) {
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(
-      path.startsWith('/feishu-groups') || /^\/projects\/[^/]+\/groups\/[^/]+\/employees$/.test(path)
-        ? 120000
+      path.startsWith('/employee-templates/') ||
+        path.startsWith('/feishu-groups') ||
+        /^\/projects\/[^/]+\/groups\/[^/]+\/employees$/.test(path)
+        ? 180000
         : 15000,
     ),
   });
@@ -614,7 +616,7 @@ async function openMaConfig() {
       <form id="ma-config-form" autocomplete="off"><label for="ma-api-key">方舟 API Key</label>
       <input id="ma-api-key" type="password" name="apiKey" autocomplete="new-password" maxlength="4096" required placeholder="${state.configured ? '输入新密钥以替换；留空不修改' : '输入具备 MA 权限的 API Key'}" />
       <p id="ma-verification-message" class="muted" role="status">${esc(state.message)}</p>
-      <p class="muted">初始化会核验并补齐 ADA 技能、环境、记忆库、Agent 与 Bot 凭证。已存在的资源会复用；已删除且无备份的记忆只能重建空库。初始化会暂停飞书 Channel，完成后需重启本机服务并发送 /new。</p><div id="ma-initialization-status" role="status"></div>
+      <p class="muted">初始化会核验并补齐已有 ADA / 社媒热点员工的配套技能、环境、记忆库、Agent 与 Bot 凭证。已存在的资源会复用；已删除且无备份的记忆只能重建空库。初始化会暂停飞书 Channel，完成后需重启本机服务并发送 /new。</p><div id="ma-initialization-status" role="status"></div>
       <div class="actions form-actions">${button('取消', 'close')}${state.configured ? button('重新验证已保存密钥', 'verify-ma') + button('一键初始化 MA 资源', 'initialize-ma') : ''}<button class="primary" type="submit">保存并验证</button></div></form>`,
     );
   } catch (error) {
@@ -681,6 +683,51 @@ document.addEventListener('click', async (event) => {
 });
 let feishuPoll;
 let feishuDialogId;
+function chooseFeishu(id) {
+  modal(
+    '接入飞书',
+    `<p class="muted">选择此数字员工使用的飞书应用。</p><div class="actions">${button('新建飞书应用', 'create-feishu', '', true)}${button('使用已有应用', 'existing-feishu')}</div><div class="actions form-actions">${button('取消', 'close')}</div>`,
+  );
+  feishuDialogId = id;
+}
+function existingFeishu(id) {
+  clearTimeout(feishuPoll);
+  feishuDialogId = id;
+  modal(
+    '使用已有飞书应用',
+    `<form id="existing-feishu-form">
+    <p class="muted">填写企业自建应用凭证。接入后会校验权限并启动机器人连接；同一应用只能绑定一个数字员工。</p>
+    <label>App ID<input name="appId" placeholder="cli_…" required autocomplete="off"></label>
+    <label>App Secret<input name="appSecret" type="password" required autocomplete="new-password"></label>
+    <p class="muted">请在飞书开放平台启用机器人、配置长连接与消息/机器人进退群事件，并发布应用。若已有其他服务使用此机器人，请先停止原服务。</p>
+    <p id="existing-feishu-error" class="error" role="alert"></p>
+    <div class="actions form-actions">${button('取消', 'close')}<button class="primary" type="submit">验证并接入</button></div></form>`,
+  );
+}
+document.addEventListener('submit', async (event) => {
+  if (event.target.id !== 'existing-feishu-form') return;
+  event.preventDefault();
+  const form = event.target,
+    id = feishuDialogId,
+    submit = form.querySelector('[type="submit"]');
+  const data = new FormData(form);
+  submit.disabled = true;
+  try {
+    await request(`/employees/${encodeURIComponent(id)}/feishu`, 'POST', {
+      mode: 'existing',
+      appId: data.get('appId'),
+      appSecret: data.get('appSecret'),
+    });
+    form.elements.appSecret.value = '';
+    if ($('#modal').open && feishuDialogId === id && $('#existing-feishu-form') === form)
+      await openFeishu(id);
+  } catch (error) {
+    form.elements.appSecret.value = '';
+    form.querySelector('#existing-feishu-error').textContent = error.message;
+  } finally {
+    submit.disabled = false;
+  }
+});
 async function openFeishu(id, begin = false, confirmedNotCreated = false, upgrade = false) {
   clearTimeout(feishuPoll);
   feishuDialogId = id;
@@ -710,6 +757,7 @@ async function openFeishu(id, begin = false, confirmedNotCreated = false, upgrad
 function paintFeishu(id, state) {
   if (!$('#modal').open || feishuDialogId !== id || !$('#feishu-progress')) return;
   $('#feishu-progress').innerHTML = `<p role="status">${esc(state.message || state.status)}</p>
+    ${state.groupEventsAuthorized === false ? `<p class="error" role="alert">缺少机器人进退群事件权限，移除机器人后工作台无法自动同步。请在飞书开放平台开通「订阅机器人进、出群事件」并确认订阅进群、退群事件，发布应用后重启本机服务。</p><p><a href="https://open.feishu.cn/app/${encodeURIComponent(state.appId)}/auth" target="_blank" rel="noopener noreferrer">前往飞书配置权限 ↗</a></p>` : ''}
     ${state.permissionWarnings?.length ? `<p class="muted">原权限模板尚未授予：${state.permissionWarnings.map(esc).join('、')}。相关业务操作以飞书实际权限为准，不影响已具备权限的卡片对话。</p>` : ''}
     ${state.status === 'awaiting_permissions' ? button('补齐现有应用权限', 'upgrade-feishu', id, true) : ''}
     ${state.appId && ['stopped', 'awaiting_ma', 'error'].includes(state.status) ? button('继续接入', 'resume-feishu', id, true) : ''}
@@ -940,7 +988,7 @@ function overview(module) {
     head(
       names[module],
       employees ? '配置数字员工，让能力在项目中复用。' : '连接群聊与成员，沉淀共同的项目记忆。',
-      (employees ? button('初始化 ADA', 'initialize-ada') : '') +
+      (employees ? button('初始化数字员工', 'choose-employee-template') : '') +
         button(
           employees ? '＋ 创建员工' : '＋ 创建项目',
           employees ? 'new-employee' : 'new-project',
@@ -956,6 +1004,25 @@ function overview(module) {
       )
       .join('') +
     `</div><div id="filter-empty" hidden>${empty('没有匹配结果', '换个关键词试试。')}</div>`
+  );
+}
+async function chooseEmployeeTemplate() {
+  try {
+    const result = await request('/employee-templates');
+    modal(
+      '初始化数字员工',
+      `<p class="muted">选择场景创建完整配置。有方舟 Key 时先上传或复用 MA 技能，再绑定到员工；已有员工保留修改。未配置 Key 时仅创建配置，技能待初始化。</p><div class="grid compact-cards">${result.templates.map((template) => `<article class="entity-card"><h3>${esc(template.name)}</h3><p>${esc(template.description)}</p><p class="muted">${template.skills.length} 个配套 Skill · 方法规范与记忆模板</p><p class="muted">${template.dependencies.map((d) => esc(d.name)).join(' · ')}</p>${button('初始化 / 补齐技能', 'initialize-template', template.key, true)}</article>`).join('')}</div><p id="template-init-progress" role="status"></p>`,
+    );
+  } catch (error) {
+    toast(error.message);
+  }
+}
+function templateDependencies(e) {
+  if (!Array.isArray(e.dependencies) || !e.dependencies.length) return '';
+  return panel(
+    '场景依赖',
+    '下面是配置要求，尚未进行外部连通性验证。具体契约在员工记忆 config/dependencies.json 中。',
+    `<div class="grid compact-cards">${e.dependencies.map((d) => `<article class="entity-card"><h3>${esc(d.name)}</h3>${badge(d.status)}<p>${esc(d.description)}</p></article>`).join('')}</div>`,
   );
 }
 function employeeDetail(e, section) {
@@ -974,6 +1041,7 @@ function employeeDetail(e, section) {
         ],
       )}<div class="full">${area('描述', 'description', e.description, 3)}</div></div>`,
     );
+  if (section === 'basic') content += templateDependencies(e);
   if (section === 'identity')
     content = panel(
       '身份',
@@ -993,8 +1061,8 @@ function employeeDetail(e, section) {
         if (feishu)
           return panel(
             '飞书',
-            '用当前飞书账号确认创建应用，绑定后自动启动消息服务。',
-            `<div class="actions">${button('创建应用并接入', 'connect-feishu', '', true)}${button('查看接入状态', 'view-feishu')}</div>`,
+            '新建或使用已有飞书应用，绑定后自动启动消息服务。',
+            `<div class="actions">${button('接入飞书', 'connect-feishu', '', true)}${button('查看接入状态', 'view-feishu')}</div>`,
           );
         return panel(
           feishu ? '飞书' : '豆包',
@@ -1378,18 +1446,28 @@ document.addEventListener('click', async (event) => {
     closeModal();
   }
   const { owner } = context();
-  if (action === 'initialize-ada') {
-    target.disabled = true;
+  if (action === 'choose-employee-template') return chooseEmployeeTemplate();
+  if (action === 'initialize-template' || action === 'initialize-ada') {
+    const buttons = [...document.querySelectorAll('[data-action="initialize-template"]')];
+    buttons.forEach((b) => (b.disabled = true));
+    const progress = $('#template-init-progress');
+    if (progress) progress.textContent = '正在初始化配置并核验 MA 技能，请稍候。可在任务页查看进度。';
     try {
-      const result = await request('/employee-templates/ada/initialize', 'POST', {});
+      const result = await request(
+        `/employee-templates/${encodeURIComponent(action === 'initialize-ada' ? 'ada' : id)}/initialize`,
+        'POST',
+        {},
+      );
       acceptServer(result);
-      history.pushState(null, '', `#employees/${result.employeeId}/identity`);
+      closeModal();
+      history.pushState(null, '', `#employees/${result.employeeId}/basic`);
       render();
-      toast(result.created ? 'ADA 已初始化，可查看配置并连接飞书' : 'ADA 已存在，已打开配置');
+      toast(result.message || (result.created ? '员工已初始化' : '已打开现有员工'));
     } catch (error) {
+      if (progress?.isConnected) progress.textContent = error.message;
       toast(error.message);
     } finally {
-      target.disabled = false;
+      buttons.forEach((b) => (b.disabled = false));
     }
     return;
   }
@@ -1435,7 +1513,9 @@ document.addEventListener('click', async (event) => {
   if (action === 'retry-feishu') return openFeishu(id, true, true);
   if (action === 'upgrade-feishu') return openFeishu(id, true, false, true);
   if (action === 'resume-feishu') return openFeishu(id, true);
-  if (action === 'connect-feishu') return openFeishu(owner.id, true);
+  if (action === 'connect-feishu') return chooseFeishu(owner.id);
+  if (action === 'create-feishu') return openFeishu(feishuDialogId, true);
+  if (action === 'existing-feishu') return existingFeishu(feishuDialogId);
   if (action === 'view-feishu') return openFeishu(owner.id);
   if (action === 'new-task') return editDialog('task');
   if (action === 'browse-feishu-groups') return browseFeishuGroups();
@@ -1671,7 +1751,7 @@ document.addEventListener('click', async (event) => {
   }
 });
 document.addEventListener('submit', async (event) => {
-  if (event.target.id === 'ma-config-form') return;
+  if (['ma-config-form', 'existing-feishu-form'].includes(event.target.id)) return;
   event.preventDefault();
   const form = event.target;
   const values = Object.fromEntries(new FormData(form));

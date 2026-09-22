@@ -12,7 +12,7 @@ import { LocalWorkspace, normalizeGroups } from './workspace.ts';
 import type { WorkspaceChannels } from './channels.ts';
 import type { MaConfiguration } from './ma-config.ts';
 import type { FeishuGroups } from './feishu-groups.ts';
-import { initializeAda } from './employee-templates.ts';
+import { employeeTemplates, initializeEmployeeTemplate } from './employee-templates.ts';
 import { MaSkills } from './ma-skills.ts';
 
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -197,9 +197,21 @@ export async function createWeb(
             ),
           );
         }
-        if (path === '/api/workspace/employee-templates/ada/initialize' && method === 'POST') {
+        if (path === '/api/workspace/employee-templates' && method === 'GET')
+          return json(res, { templates: employeeTemplates.map(({ create, ...template }) => template) });
+        const templateInit = path.match(/^\/api\/workspace\/employee-templates\/([a-z-]+)\/initialize$/);
+        if (templateInit && method === 'POST') {
           await body(req);
-          return json(res, initializeAda(workspace));
+          return json(
+            res,
+            options.initializer
+              ? await options.initializer.initializeTemplate(templateInit[1])
+              : {
+                  ...initializeEmployeeTemplate(workspace, templateInit[1]),
+                  skillStatus: 'pending',
+                  message: '配置已创建，MA 技能待初始化',
+                },
+          );
         }
         if (path === '/api/workspace/feishu-groups' && options.feishuGroups) {
           if (method === 'GET')
@@ -274,9 +286,13 @@ export async function createWeb(
           if (method === 'GET') return json(res, options.channels.view(decodeURIComponent(channel[1])));
           if (method === 'POST') {
             const input = await body(req);
+            if (input?.mode !== undefined && !['existing', 'new'].includes(input.mode))
+              throw new DomainError('不支持的飞书接入方式');
             return json(
               res,
-              options.channels.begin(decodeURIComponent(channel[1]), input?.confirmedNotCreated === true),
+              input?.mode === 'existing'
+                ? await options.channels.bindExisting(decodeURIComponent(channel[1]), input)
+                : options.channels.begin(decodeURIComponent(channel[1]), input?.confirmedNotCreated === true),
               202,
             );
           }

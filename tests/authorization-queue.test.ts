@@ -139,7 +139,8 @@ for (const action of ["cancel", "new", "denied", "expired"] as const) {
     else if (action === "denied") poll.reject(new OAuthError("denied"));
     else t.mock.timers.tick(1000);
     await flush(); await flush();
-    assert.deepEqual(runs, [`${action === "new" ? "new-session" : "old-session"}:later`]);
+    assert.deepEqual(runs, action === "new" ? [] : ["old-session:later"]);
+    if (action === "new") { gateway.accept(message("fresh")); await flush(); await flush(); assert.deepEqual(runs, ["new-session:fresh"]); }
     assert.equal(store.getAuthorizationRecovery(original)?.state, action === "denied" ? "failed" : action === "expired" ? "expired" : "cancelled");
     assert.ok(replies.length >= 1);
     if (action !== "denied") { poll.resolve(tokens()); await flush(); assert.equal(runs.length, 1); }

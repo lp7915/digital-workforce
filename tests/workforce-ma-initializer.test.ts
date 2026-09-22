@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { MaInitializer, MaResourceRegistry, ADA_SKILL_NAMES } from '../src/workforce/ma-initializer.ts';
 import { MaConfiguration } from '../src/workforce/ma-config.ts';
 import { DomainError } from '../src/workforce/domain.ts';
+import { createSocialEmployee, SOCIAL_SKILL_NAMES } from '../src/workforce/social-template.ts';
 import { createAdaEmployee } from '../src/workforce/employee-templates.ts';
 import { PLATFORM_SKILLS } from '../src/workforce/skill-catalog.ts';
 
@@ -64,85 +65,109 @@ test('Skill 清单按 Key 保存，切换账户不串用初始化 ID', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
-test('初始化先回读全部真实 Skill 再创建 Agent；重复点击不并发，新账户引用新资源', async (t) => {
-  const db = new DatabaseSync(':memory:');
-  db.exec(
-    'CREATE TABLE workspace_recommended_environment(id INTEGER PRIMARY KEY,remote_id TEXT);CREATE TABLE workspace_memory_links(key TEXT PRIMARY KEY,remote_id TEXT,token TEXT);',
-  );
-  const employee = createAdaEmployee();
-  employee.memoryStores = [];
-  employee.memories = [];
-  employee.memoryMode = 'ma';
-  let state: any = { employees: [employee], projects: [], groups: [] },
-    catalog: any;
-  const tasks = new Map<string, any>(),
-    calls: string[] = [];
-  let binding: any;
-  const workspace: any = {
-    db,
-    read: () => ({ state: structuredClone(state), revision: 0 }),
-    save: (s: any) => {
-      state = structuredClone(s);
-      return { state, revision: 1 };
-    },
-    tasks: () => [...tasks.values()],
-    putTask: (j: any) => tasks.set(j.id, j),
-  };
-  const config: any = {
-    apiKey: () => 'test-key',
-    platformSkills: () => catalog,
-    savePlatformSkills: (s: any) => {
-      catalog = s;
-    },
-  };
-  const channels: any = {
-    pauseForInitialization: async () => {},
-    resourceBindings: () => (binding ? [binding] : []),
-    saveResourceBinding: (b: any) => {
-      binding = structuredClone(b);
-    },
-  };
-  t.mock.method(globalThis, 'fetch', async (url: any, options: any = {}) => {
-    const path = new URL(url).pathname.replace('/api/v3', ''),
-      method = options.method || 'GET';
-    calls.push(`${method} ${path}`);
-    if (path === '/environments' && method === 'GET') return Response.json({ data: [] });
-    const index = PLATFORM_SKILLS.findIndex((s) => path === `/skills/${s.id}`);
-    if (index >= 0)
-      return Response.json({
-        id: PLATFORM_SKILLS[index].id,
-        name: ADA_SKILL_NAMES[index],
-        source: 'custom',
-        latest_version: '1',
-      });
-    if (path === '/environments' && method === 'POST') return Response.json({ id: 'env-new' });
-    if (path === '/environments/env-new') return Response.json({ id: 'env-new', config: { type: 'cloud' } });
-    if (path === '/agents' && method === 'POST') {
-      const body = JSON.parse(options.body);
-      assert.equal(body.skills.length, 3);
-      return Response.json({ id: 'agent-new', version: '1' });
+for (const includeSocial of [false, true])
+  test(`初始化先回读真实 Skill 再创建 Agent；双场景：${includeSocial}`, async (t) => {
+    const db = new DatabaseSync(':memory:');
+    db.exec(
+      'CREATE TABLE workspace_recommended_environment(id INTEGER PRIMARY KEY,remote_id TEXT);CREATE TABLE workspace_memory_links(key TEXT PRIMARY KEY,remote_id TEXT,token TEXT);',
+    );
+    const employee = createAdaEmployee();
+    employee.memoryStores = [];
+    employee.memories = [];
+    employee.memoryMode = 'ma';
+    const social: any = createSocialEmployee();
+    social.memoryStores = [];
+    social.memories = [];
+    social.memoryMode = 'ma';
+    let state: any = { employees: includeSocial ? [employee, social] : [employee], projects: [], groups: [] },
+      catalog: any;
+    const tasks = new Map<string, any>(),
+      calls: string[] = [];
+    let binding: any;
+    const workspace: any = {
+      db,
+      read: () => ({ state: structuredClone(state), revision: 0 }),
+      save: (s: any) => {
+        state = structuredClone(s);
+        return { state, revision: 1 };
+      },
+      tasks: () => [...tasks.values()],
+      putTask: (j: any) => tasks.set(j.id, j),
+    };
+    const config: any = {
+      apiKey: () => 'test-key',
+      platformSkills: () => catalog,
+      savePlatformSkills: (s: any) => {
+        catalog = s;
+      },
+    };
+    const channels: any = {
+      pauseForInitialization: async () => {},
+      resourceBindings: () => (binding ? [binding] : []),
+      saveResourceBinding: (b: any) => {
+        binding = structuredClone(b);
+      },
+    };
+    t.mock.method(globalThis, 'fetch', async (url: any, options: any = {}) => {
+      const path = new URL(url).pathname.replace('/api/v3', ''),
+        method = options.method || 'GET';
+      calls.push(`${method} ${path}`);
+      if (path === '/environments' && method === 'GET') return Response.json({ data: [] });
+      const index = PLATFORM_SKILLS.findIndex((s) => path === `/skills/${s.id}`);
+      if (index >= 0)
+        return Response.json({
+          id: PLATFORM_SKILLS[index].id,
+          name: ADA_SKILL_NAMES[index],
+          source: 'custom',
+          latest_version: '1',
+        });
+      if (path === '/skills' && method === 'POST') {
+        const name = options.body.get('files').name.replace('.zip', '');
+        assert.ok(SOCIAL_SKILL_NAMES.includes(name));
+        return Response.json({ id: `skill-${name}` });
+      }
+      const socialName = SOCIAL_SKILL_NAMES.find((name) => path === `/skills/skill-${name}`);
+      if (socialName)
+        return Response.json({
+          id: `skill-${socialName}`,
+          name: socialName,
+          source: 'custom',
+          latest_version: '1',
+        });
+      if (path === '/environments' && method === 'POST') return Response.json({ id: 'env-new' });
+      if (path === '/environments/env-new')
+        return Response.json({ id: 'env-new', config: { type: 'cloud' } });
+      if (path === '/agents' && method === 'POST') {
+        const body = JSON.parse(options.body);
+        assert.equal(body.skills.length, 3);
+        return Response.json({ id: 'agent-new', version: '1' });
+      }
+      if (path === '/vaults' && method === 'POST') return Response.json({ id: 'vault-new' });
+      throw Error(`unexpected ${method} ${path}`);
+    });
+    const service = new MaInitializer(workspace, config, channels, {
+      owner: (kind: string, id: string) => state[kind].find((o: any) => o.id === id),
+    } as any);
+    try {
+      service.start();
+      service.start();
+      for (let i = 0; i < 100 && service.running; i++) await new Promise((r) => setTimeout(r, 5));
+      assert.equal(service.status().task?.status, 'completed', service.status().task?.progress);
+      const created = calls.indexOf('POST /agents');
+      assert.ok(created > 0);
+      assert.ok(calls.slice(0, created).filter((p) => p.startsWith('GET /skills/')).length >= 3);
+      assert.equal(calls.filter((c) => c === 'POST /agents').length, includeSocial ? 2 : 1);
+      if (includeSocial)
+        assert.deepEqual(
+          state.employees[1].skills.map((s: any) => s.name),
+          SOCIAL_SKILL_NAMES,
+        );
+      assert.equal(state.employees[0].skills.length, 3);
+      assert.equal(binding.agentId, 'agent-new');
+    } finally {
+      db.close();
     }
-    if (path === '/vaults' && method === 'POST') return Response.json({ id: 'vault-new' });
-    throw Error(`unexpected ${method} ${path}`);
   });
-  const service = new MaInitializer(workspace, config, channels, {
-    owner: (kind: string, id: string) => state[kind].find((o: any) => o.id === id),
-  } as any);
-  try {
-    service.start();
-    service.start();
-    for (let i = 0; i < 100 && service.running; i++) await new Promise((r) => setTimeout(r, 5));
-    assert.equal(service.status().task?.status, 'completed', service.status().task?.progress);
-    const created = calls.indexOf('POST /agents');
-    assert.ok(created > 0);
-    assert.ok(calls.slice(0, created).filter((p) => p.startsWith('GET /skills/')).length >= 3);
-    assert.equal(calls.filter((c) => c === 'POST /agents').length, 1);
-    assert.equal(state.employees[0].skills.length, 3);
-    assert.equal(binding.agentId, 'agent-new');
-  } finally {
-    db.close();
-  }
-});
 
 import { Workforce } from '../src/workforce/domain.ts';
 import { LocalWorkspace } from '../src/workforce/workspace.ts';

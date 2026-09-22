@@ -45,6 +45,7 @@ export function createEmployeeRuntime(input: {
     }
   );
   gateway = new Gateway(store, ark, (message, outbound, observer) => channel.reply(message, outbound, observer), {
+    reportDiagnostics: true,
     appId: config.feishuAppId, sessionConfiguration, buildSessionRequest: input.buildSessionRequest, sessionConfigurationRevision: runtimeRevision,
     pdfInputMode: input.pdfInputMode || "file",
     agentId: config.arkAgentId, environmentId: config.arkEnvironmentId, vaultId: config.arkVaultId,

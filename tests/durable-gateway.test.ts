@@ -142,7 +142,7 @@ test("cancelling OAuth releases durable followers without replaying the cancelle
   } finally { store.close(); }
 });
 
-test("explicit new bypasses an OAuth wait but not ordinary FIFO and preserves pending followers", async () => {
+test("explicit new bypasses an OAuth wait and clears old pending followers", async () => {
   const store = new GatewayStore(":memory:"); store.acquireRuntimeLock(); const runs: string[] = []; let gateway: Gateway, creates = 0;
   const first = message("first"), later = message("later"), reset = message("reset", { text: "/new" });
   gateway = new Gateway(store, { createSession: async () => `session-${++creates}`, run: async (s, input) => {
@@ -151,9 +151,11 @@ test("explicit new bypasses an OAuth wait but not ordinary FIFO and preserves pe
     cancelAuthorization: () => { store.finishAuthorizationRecovery(first, "cancelled"); gateway.setAuthorizationWaiting([first], "flow", false); return true; } });
   try {
     gateway.accept(first); gateway.accept(later); await until(() => store.inbox.findMessage(first)?.state === "awaiting_authorization"); await flush();
-    gateway.accept(reset); await until(() => store.inbox.findMessage(later)?.state === "completed");
-    assert.deepEqual(runs, ["session-1:first", "session-2:later"]);
-    assert.equal(store.inbox.findMessage(reset)!.state, "completed");
+    gateway.accept(reset); await until(() => store.inbox.findMessage(later)?.state === "failed");
+    assert.deepEqual(runs, ["session-1:first"]);
+    assert.equal(store.inbox.findMessage(reset), undefined);
+    gateway.accept(message("fresh")); await until(() => store.inbox.findMessage(message("fresh"))?.state === "completed");
+    assert.deepEqual(runs, ["session-1:first", "session-2:fresh"]);
     assert.equal(store.getSession(toConversationKey(first, true)), "session-2");
   } finally { store.close(); }
 });
@@ -282,4 +284,31 @@ test("actual Gateway exit inside MA dispatch cannot replay its task or release s
       assert.equal(store.inbox.findMessage(message("second"))!.state, "queued");
     } finally { store.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("运行失败向原群发送一次带 Session 和 events 的脱敏诊断，不重发任务", async () => {
+  const store = new GatewayStore(":memory:"); store.acquireRuntimeLock();
+  const sent: Array<{chat: string; text: string}> = []; let runs = 0;
+  const gateway = new Gateway(store, {
+    createSession: async () => "session-diagnostic",
+    run: async () => { runs++; throw new Error("upstream failure token=PRIVATE_TOKEN"); },
+    diagnosticEvents: async id => {
+      assert.equal(id, "session-diagnostic");
+      return [{id: "event-failed", type: "session.failed", content: "PRIVATE_BODY", error: {type: "model_request_failed_error"}}];
+    }
+  }, async (incoming, outbound) => {
+    if (outbound.type === "text") sent.push({chat: incoming.conversationId, text: outbound.text});
+  }, { ...options, reportDiagnostics: true });
+  try {
+    const incoming = message("diagnostic", {conversationType:"group", mentionedBot:true});
+    gateway.accept(incoming);
+    await until(() => sent.some(s => s.text.includes("已暂停此会话")));
+    const notices = sent.filter(s => s.text.includes("【Gateway 异常诊断】"));
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].chat, incoming.conversationId);
+    assert.match(notices[0].text, /session-diagnostic/);
+    assert.match(notices[0].text, /event-failed/);
+    assert.doesNotMatch(notices[0].text, /PRIVATE_TOKEN|PRIVATE_BODY/);
+    assert.equal(runs, 1);
+  } finally { store.close(); }
 });

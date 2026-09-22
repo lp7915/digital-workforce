@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { resolve, join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { MaResourceRegistry } from './ma-resource-registry.ts';
+export { MaResourceRegistry } from './ma-resource-registry.ts';
+import { ensureTemplateSkills } from './template-skills.ts';
+import { employeeTemplate, employeeTemplates, initializeEmployeeTemplate } from './employee-templates.ts';
 import { ArkClient } from '../ark.ts';
 import { DomainError } from './domain.ts';
 import { MaMemoryApi } from './ma-memory.ts';
@@ -16,63 +16,6 @@ import type { WorkspaceChannels } from './channels.ts';
 import type { WorkspaceMemories } from './workspace-memories.ts';
 
 export const ADA_SKILL_NAMES = ['ada-artist-profile', 'ada-brand-fit', 'ada-campaign-review'];
-
-// 每个 Key 独立保存创建回执；网络超时保留 pending，不通过重复 POST 猜测结果。
-export class MaResourceRegistry {
-  constructor(workspace: LocalWorkspace, scope: string, api: Pick<MaMemoryApi, 'call'>) {
-    this.workspace = workspace;
-    this.scope = scope;
-    this.api = api;
-    workspace.db.exec(
-      'CREATE TABLE IF NOT EXISTS workspace_ma_resources (scope TEXT, name TEXT, payload TEXT NOT NULL, PRIMARY KEY(scope,name))',
-    );
-  }
-  private workspace: LocalWorkspace;
-  private scope: string;
-  private api: Pick<MaMemoryApi, 'call'>;
-  async ensure(name: string, path: string, known: string | undefined, create: () => Promise<any>) {
-    const row = this.workspace.db
-      .prepare('SELECT payload FROM workspace_ma_resources WHERE scope=? AND name=?')
-      .get(this.scope, name);
-    const saved = row ? JSON.parse(String(row.payload)) : undefined;
-    const save = (value: any) =>
-      this.workspace.db
-        .prepare('INSERT OR REPLACE INTO workspace_ma_resources VALUES(?,?,?)')
-        .run(this.scope, name, JSON.stringify(value));
-    if (saved?.pending) throw new DomainError(`${name} 上次创建结果未确认，请核查 MA，未重复创建`, 409);
-    const id = saved?.id || known;
-    if (id) {
-      try {
-        const raw = await this.api.call(`${path}/${encodeURIComponent(id)}`);
-        const found = raw.data || raw;
-        if (found.id !== id) throw new DomainError(`${name} 返回的资源 ID 不匹配`, 502);
-        save({ id });
-        return { resource: found, created: false };
-      } catch (error) {
-        if (!(error instanceof DomainError && error.status === 404)) throw error;
-      }
-    }
-    save({ pending: true });
-    try {
-      const raw = await create();
-      const resource = raw.data || raw;
-      if (!resource.id) throw new DomainError(`${name} 创建回执缺少 ID`, 502);
-      save({ id: resource.id });
-      return { resource, created: true };
-    } catch (error) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'status' in error &&
-        [400, 401, 403, 404, 422, 429].includes(Number(error.status))
-      )
-        this.workspace.db
-          .prepare('DELETE FROM workspace_ma_resources WHERE scope=? AND name=?')
-          .run(this.scope, name);
-      throw error;
-    }
-  }
-}
 
 export class MaInitializer {
   running = false;
@@ -99,6 +42,69 @@ export class MaInitializer {
   }
   status() {
     return { running: this.running, task: this.workspace.tasks().find((t) => t.type === 'ma_init') || null };
+  }
+  async initializeTemplate(key: string) {
+    const template = employeeTemplate(key);
+    if (this.running) throw new DomainError('初始化正在进行，请稍后重试', 409);
+    // 先检查重名，避免无效请求产生云端资源；不覆盖已有模板内容。
+    const current = this.workspace.read();
+    if (
+      !current.state.employees.some((e: any) => e.templateId === template.templateId) &&
+      current.state.employees.some((e: any) => e.name.trim().toLowerCase() === template.name.toLowerCase())
+    )
+      throw new DomainError('已存在同名员工，初始化不会覆盖已有配置', 409);
+    if (!this.config.apiKey())
+      return {
+        ...initializeEmployeeTemplate(this.workspace, key),
+        skillStatus: 'pending',
+        message: '员工配置已保存；请先配置方舟 API Key，再次初始化以绑定真实 MA 技能。',
+      };
+    this.running = true;
+    const job: any = {
+      id: randomUUID(),
+      requestId: randomUUID(),
+      type: 'ma_init',
+      name: `初始化${template.name}`,
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      progress: '核验 MA 技能',
+      steps: [],
+      warnings: [],
+    };
+    this.workspace.putTask(job);
+    try {
+      const skills = await ensureTemplateSkills(this.workspace, this.config, template.skills, (message) => {
+        job.progress = message;
+        job.steps.push(message);
+        this.workspace.putTask(job);
+      });
+      const result = initializeEmployeeTemplate(this.workspace, key);
+      const latest = this.workspace.read();
+      const e = latest.state.employees.find((e: any) => e.id === result.employeeId);
+      for (const skill of skills) {
+        const index = e.skills.findIndex((s: any) => s.name === skill.name || s.id === skill.id);
+        if (index < 0) e.skills.push(skill);
+        else e.skills[index] = { ...skill, enabled: e.skills[index].enabled };
+      }
+      const saved = this.workspace.save(latest.state, latest.revision);
+      job.status = 'completed';
+      job.progress = '员工配置与 MA 技能已就绪，外部业务依赖仍需配置';
+      return {
+        ...saved,
+        employeeId: result.employeeId,
+        created: result.created,
+        skillStatus: 'ready',
+        message: job.progress,
+      };
+    } catch (error) {
+      job.status = 'failed';
+      job.progress = error instanceof DomainError ? error.message : '技能初始化失败，请查看 MA 资源后重试';
+      throw new DomainError(job.progress, error instanceof DomainError ? error.status : 502);
+    } finally {
+      this.running = false;
+      job.finishedAt = new Date().toISOString();
+      this.workspace.putTask(job);
+    }
   }
   start() {
     if (this.running) return this.status();
@@ -159,45 +165,27 @@ export class MaInitializer {
       job.steps.push(text);
       this.workspace.putTask(job);
     };
-    const catalog = this.config.platformSkills() || PLATFORM_SKILLS;
-    const skills: any[] = [];
-    for (const [index, name] of ADA_SKILL_NAMES.entries()) {
-      const known =
-        catalog.find((s: any) => s.name === name)?.id ||
-        this.workspace
-          .read()
-          .state.employees.flatMap((e: any) => e.skills)
-          .find((s: any) => s.name === name)?.id ||
-        catalog[index]?.id;
-      const result = await registry.ensure(`skill:${name}`, '/skills', known, () =>
-        this.uploadSkill(name, key),
-      );
-      const skill = result.resource;
-      if (skill.name !== name || skill.source !== 'custom' || !/^\d+$/.test(String(skill.latest_version)))
-        throw new DomainError(`技能 ${name} 的名称或版本不匹配`, 502);
-      skills.push({
-        id: skill.id,
-        name,
-        description: skill.description || '',
-        version: String(skill.latest_version),
-        source: 'ma',
-        type: 'custom',
-        enabled: true,
-        tags: ['ada'],
-      });
-      note(`${result.created ? '已创建' : '已复用'} Skill：${name}`);
-    }
-    guarded.apiKey();
-    this.config.savePlatformSkills(skills.map((s) => ({ id: s.id, name: s.name, tags: s.tags })));
+    const needed = employeeTemplates.filter(
+      (t) =>
+        t.key === 'ada' ||
+        this.workspace.read().state.employees.some((e: any) => e.templateId === t.templateId),
+    );
+    const skills = await ensureTemplateSkills(
+      this.workspace,
+      this.config,
+      needed.flatMap((t) => t.skills),
+      note,
+    );
     let current = this.workspace.read();
     for (const e of current.state.employees) {
       e.skills = e.skills.map((old: any) => {
-        const index = PLATFORM_SKILLS.findIndex((s) => s.id === old.id);
-        const replacement =
-          skills.find((s) => s.name === old.name) || (index >= 0 ? skills[index] : undefined);
+        const name = old.name || PLATFORM_SKILLS.find((s) => s.id === old.id)?.name;
+        const replacement = skills.find((s) => s.name === name);
         return replacement ? { ...replacement, enabled: old.enabled } : old;
       });
-      if (e.templateId === 'ada-artist-analysis-v1' && !e.skills.length) e.skills = structuredClone(skills);
+      const template = employeeTemplates.find((t) => t.templateId === e.templateId);
+      if (template && !e.skills.length)
+        e.skills = skills.filter((s) => template.skills.some((spec) => spec.name === s.name));
     }
     this.workspace.save(current.state, current.revision, true);
     const knownEnv = this.workspace.db
@@ -329,27 +317,5 @@ export class MaInitializer {
     job.status = 'completed';
     job.progress = 'MA 配套资源初始化完成';
     job.result = [...job.steps, ...job.warnings].join('\n');
-  }
-  private async uploadSkill(name: string, key: string) {
-    const directory = mkdtempSync(join(tmpdir(), 'workforce-skill-'));
-    try {
-      const zip = join(directory, `${name}.zip`);
-      execFileSync('zip', ['-q', '-r', zip, name], { cwd: resolve('skills') });
-      const body = new FormData();
-      body.set('files', new Blob([readFileSync(zip)], { type: 'application/zip' }), `${name}.zip`);
-      const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/skills', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${key}` },
-        body,
-        redirect: 'error',
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!response.ok) throw new DomainError(`Skill 上传失败（HTTP ${response.status}）`, response.status);
-      const raw = await response.json();
-      const uploaded = raw.data || raw;
-      return await new MaMemoryApi({ apiKey: () => key }).call(`/skills/${encodeURIComponent(uploaded.id)}`);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
   }
 }

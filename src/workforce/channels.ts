@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, existsSync } from 'node:fs';
 import { MaConfiguration } from './ma-config.ts';
 import { MaSkills } from './ma-skills.ts';
-import { missingConversationScopes } from './channel-permissions.ts';
+import { missingConversationScopes, hasGroupEventScope } from './channel-permissions.ts';
 import { resolve } from 'node:path';
 import { registerApp, Client } from '@larksuiteoapi/node-sdk';
 import QRCode from 'qrcode-terminal/vendor/QRCode/index.js';
@@ -46,6 +46,7 @@ type Binding = {
   credentialId?: string;
   permissionsVersion?: number;
   permissionWarnings?: string[];
+  groupEventsAuthorized?: boolean;
   pendingResource?: string;
   lastReceivedAt?: string;
   lastRepliedAt?: string;
@@ -53,6 +54,7 @@ type Binding = {
 type Options = {
   dataDir: string;
   register?: typeof registerApp;
+  fetcher?: typeof fetch;
   ark?: () => ArkClient;
   provision?: (binding: Binding, checkpoint: () => void) => Promise<void>;
   connect?: (binding: Binding) => Promise<() => Promise<void>>;
@@ -73,6 +75,7 @@ export class WorkspaceChannels {
   private workspace: LocalWorkspace;
   private options: Options;
   private active = new Map<string, AbortController>();
+  private importingApps = new Set<string>();
   private synchronizing = new Map<string, Promise<any>>();
   private running = new Map<string, () => Promise<void>>();
   private jobs = new Set<Promise<void>>();
@@ -183,7 +186,8 @@ export class WorkspaceChannels {
   view(id: string) {
     this.employee(id);
     const b = this.get(id);
-    if (!b) return { employeeId: id, status: 'unbound', message: '创建新飞书应用并绑定此员工' };
+    if (!b)
+      return { employeeId: id, status: 'unbound', message: '新建飞书应用，或使用已有企业自建应用接入此员工' };
     // 白名单返回字段，App Secret 和 MA 内部配置不能通过工作台接口读出。
     return {
       employeeId: id,
@@ -197,6 +201,7 @@ export class WorkspaceChannels {
       lastRepliedAt: b.lastRepliedAt,
       permissionsVersion: b.permissionsVersion || 1,
       permissionWarnings: b.permissionWarnings || [],
+      groupEventsAuthorized: b.groupEventsAuthorized,
       environmentId: b.environmentId,
       agentId: b.agentId,
       agentVersion: b.agentVersion,
@@ -253,6 +258,63 @@ export class WorkspaceChannels {
       throw new DomainError('MA 配置同步结果未确认，请核查远端版本；本地配置已保留', 502);
     }
   }
+  async bindExisting(id: string, input: { appId?: unknown; appSecret?: unknown }) {
+    this.employee(id);
+    if (this.closed) throw new DomainError('服务正在关闭', 503);
+    const appId = typeof input.appId === 'string' ? input.appId.trim() : '';
+    const appSecret = typeof input.appSecret === 'string' ? input.appSecret.trim() : '';
+    if (
+      !/^cli_[a-zA-Z0-9]{6,80}$/.test(appId) ||
+      !appSecret ||
+      appSecret.length > 512 ||
+      /[\s\x00-\x1f]/.test(appSecret)
+    )
+      throw new DomainError('请填写有效的 App ID 和 App Secret');
+    if (this.active.has(id) || this.running.has(id) || this.get(id)?.appId || this.get(id)?.pendingResource)
+      throw new DomainError('该员工已绑定应用或正在接入，请使用现有接入状态继续处理', 409);
+    if (this.importingApps.has(appId) || this.all().some((b) => b.appId === appId))
+      throw new DomainError('此飞书应用已绑定其他数字员工或正在接入', 409);
+    const controller = new AbortController();
+    this.active.set(id, controller);
+    this.importingApps.add(appId);
+    try {
+      const response = await (this.options.fetcher || fetch)(
+        'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
+          redirect: 'error',
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
+        },
+      );
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new DomainError('无法验证飞书应用，请检查网络与应用凭证', 502);
+      }
+      const result = await response.json();
+      if (result.code !== 0 || typeof result.tenant_access_token !== 'string' || !result.tenant_access_token)
+        throw new DomainError('App ID 或 App Secret 验证失败，请确认是企业自建应用的有效凭证');
+      if (this.closed || controller.signal.aborted) throw new DomainError('接入已取消', 409);
+      this.employee(id);
+      this.put({
+        employeeId: id,
+        appId,
+        appSecret,
+        permissionsVersion: 2,
+        status: 'stopped',
+        message: '已有应用凭证已验证，准备校验权限并连接',
+      });
+    } catch (error) {
+      if (error instanceof DomainError) throw error;
+      throw new DomainError('验证飞书应用失败或超时，请检查凭证与网络后重试', 502);
+    } finally {
+      this.active.delete(id);
+      this.importingApps.delete(appId);
+    }
+    return this.begin(id);
+  }
+
   begin(id: string, confirmedNotCreated = false) {
     const employee = this.employee(id);
     if (this.closed) throw new DomainError('服务正在关闭', 503);
@@ -381,6 +443,7 @@ export class WorkspaceChannels {
         .map((s) => s.scope_name),
     );
     const missing = missingConversationScopes(tenant);
+    b.groupEventsAuthorized = hasGroupEventScope(tenant);
     b.permissionWarnings = resolveLarkBotScopes(DEFAULT_LARK_DOMAINS).filter((scope) => !tenant.has(scope));
     checkpoint();
     if (missing.length)
@@ -433,7 +496,9 @@ export class WorkspaceChannels {
       'environmentId',
       async () => (await ark.createEnvironment(`workforce-${b.appId}`.slice(0, 60), b.appId!)).id,
     );
-    await create('vaultId', () => ark.createVault(`workforce-${b.appId}`, { workforce_employee: b.employeeId }));
+    await create('vaultId', () =>
+      ark.createVault(`workforce-${b.appId}`, { workforce_employee: b.employeeId }),
+    );
     if (!b.credentialId) {
       const credentials = await ark.listCredentials(b.vaultId!);
       const existing = credentials.find((item) => item.secretName === 'LARKSUITE_CLI_APP_SECRET');
@@ -489,16 +554,10 @@ export class WorkspaceChannels {
         store.recordOutgoing(message, id);
       },
     });
-    const allowed = (message: any) => {
+    const employeeEnabled = () => {
       const state = this.workspace.read().state;
       const employee = state.employees.find((e: any) => e.id === b.employeeId);
-      if (!employee?.enabled) return false;
-      if (message.conversationType === 'direct') return true;
-      const group = state.groups.find(
-        (g: any) => g.chatId === message.conversationId && g.employeeIds.includes(b.employeeId),
-      );
-      if (!group) return false;
-      return true;
+      return Boolean(employee?.enabled);
     };
     const memory = new SessionMemory(
       this.workspace,
@@ -546,9 +605,7 @@ export class WorkspaceChannels {
           if (message.conversationType !== 'group') throw new DomainError('请在项目关联群中触发记忆整理');
           const group = this.workspace
             .read()
-            .state.groups.find(
-              (g: any) => g.chatId === message.conversationId && g.employeeIds.includes(b.employeeId),
-            );
+            .state.groups.find((g: any) => g.chatId === message.conversationId);
           const project = this.workspace.read().state.projects.find((p: any) => p.id === group?.projectId);
           if (!project?.memoryStores.length) throw new DomainError('请先关联项目并创建 MA 项目记忆库');
           const job = this.organizer.start(
@@ -569,8 +626,8 @@ export class WorkspaceChannels {
           current.lastRepliedAt = new Date().toISOString();
           this.put(current);
         },
-        beforeBusinessTurn: async (message) => {
-          if (!allowed(message)) throw new Error('员工已停用或群聊未关联此员工');
+        beforeBusinessTurn: async () => {
+          if (!employeeEnabled()) throw new Error('员工已停用或删除');
         },
         validateBusinessSession: (message, sessionId) => memory.validate(b.employeeId, message, sessionId),
         observeBusinessResult: async (_message, sessionId, result) => {
@@ -587,8 +644,12 @@ export class WorkspaceChannels {
           gateway.recoverPendingMessages('lark', b.appId!);
         },
         (message) => {
-          syncMessageGroup(this.workspace, b.employeeId, message);
-          if (!allowed(message)) return;
+          try {
+            syncMessageGroup(this.workspace, b.employeeId, message);
+          } catch (error) {
+            console.error('同步群聊展示数据失败：', error);
+          }
+          if (!employeeEnabled()) return;
           if (gateway.accept(message)) {
             const current = this.get(b.employeeId)!;
             current.lastReceivedAt = new Date().toISOString();

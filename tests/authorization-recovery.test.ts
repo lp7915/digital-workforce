@@ -128,7 +128,8 @@ test("recovery validates the Session after queue admission, not only at callback
   }, async (_message, output) => { if (output.type === "text") replies.push(output.text); }, options);
   gateway.accept({ ...incoming, messageId: "other", eventId: "other" });
   await until(() => started);
-  gateway.accept({ ...incoming, messageId: "reset", eventId: "reset", text: "/new" });
+  // 模拟管理端在授权回调入队后切换绑定；/new 现在会拒绝中断运行中任务。
+  store.resetSession(toConversationKey(incoming));
   gateway.resumeAfterAuthorization(incoming, "user-vault");
   release();
   await until(() => store.getAuthorizationRecovery(incoming)?.state === "blocked");

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FeishuGroups } from '../src/workforce/feishu-groups.ts';
+import { FeishuGroups, parseLarkResult } from '../src/workforce/feishu-groups.ts';
 import { LocalWorkspace } from '../src/workforce/workspace.ts';
 
 test('成员查询只返回展示字段并保留分页，撤销管理权限后拒绝读取', async () => {
@@ -208,4 +208,16 @@ test('项目邀请待审批、无效机器人及管理权限撤回不写入在�
   } finally {
     f.workspace.close();
   }
+});
+
+test('外部群添加失败展示明确原因，其他错误不透传敏感内容', () => {
+  assert.throws(
+    () => parseLarkResult(JSON.stringify({ ok: false, error: { code: 232033, message: 'raw secret' } })),
+    /外部群.*232033/,
+  );
+  assert.throws(
+    () => parseLarkResult(JSON.stringify({ ok: false, error: { code: 999, message: 'raw secret' } })),
+    (error: Error) => error.message.includes('999') && !error.message.includes('raw secret'),
+  );
+  assert.deepEqual(parseLarkResult(JSON.stringify({ ok: true, data: { items: [] } })), { items: [] });
 });

@@ -15,11 +15,8 @@ export function memoryScope(
   if (!employee?.enabled) throw new DomainError('员工不存在或已停用', 403);
   const group =
     message.conversationType === 'group'
-      ? state.groups.find(
-          (g: any) => g.chatId === message.conversationId && g.employeeIds.includes(employeeId),
-        )
+      ? state.groups.find((g: any) => g.chatId === message.conversationId)
       : undefined;
-  if (message.conversationType === 'group' && !group) throw new DomainError('群聊未关联此员工', 403);
   const project = group?.projectId ? state.projects.find((p: any) => p.id === group.projectId) : undefined;
   const owners = [employee, ...(project ? [project] : [])];
   const stores = owners.flatMap((o: any) => {

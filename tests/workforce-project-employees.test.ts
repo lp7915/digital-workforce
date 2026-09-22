@@ -66,9 +66,16 @@ test('参与其他项目不影响当前群的记忆范围，私聊仍只加载�
       ['memstore-project', 'memstore-self'],
     );
     state.projects[0].employees = [];
+    state.groups[0].employeeIds = [];
+    state.groups[0].botRemovedAt = { [ada.employeeId]: Date.now() };
     assert.deepEqual(
       memoryScope(state, ada.employeeId, { conversationId: 'oc_demo', conversationType: 'group' }).storeIds,
       ['memstore-project', 'memstore-self'],
+    );
+    assert.deepEqual(
+      memoryScope(state, ada.employeeId, { conversationId: 'oc_unknown', conversationType: 'group' })
+        .storeIds,
+      ['memstore-self'],
     );
     assert.deepEqual(
       memoryScope(state, ada.employeeId, { conversationId: 'dm', conversationType: 'direct' }).storeIds,
@@ -121,7 +128,7 @@ test('群消息补齐遗漏入群关系，旧消息不覆盖退群记录', () =>
   }
 });
 
-test('明确退群后消息不恢复成员，其他机器人及项目保留，新进群事件可以恢复', () => {
+test('退群记录仅影响成员展示，不阻止群消息使用员工记忆', () => {
   const w = new LocalWorkspace(':memory:');
   try {
     const ada = initializeAda(w);
@@ -137,13 +144,15 @@ test('明确退群后消息不恢复成员，其他机器人及项目保留，�
       createTime: 300,
     });
     assert.deepEqual(w.read().state.groups[0].employeeIds, ['other']);
-    assert.throws(
-      () =>
-        memoryScope(w.read().state, ada.employeeId, {
-          conversationType: 'group',
-          conversationId: 'oc_removed',
-        }),
-      /群聊未关联/,
+    const state = w.read().state;
+    state.employees[0].memoryMode = 'ma';
+    state.employees[0].memoryStores = [{ maStoreId: 'memstore-self' }];
+    assert.deepEqual(
+      memoryScope(state, ada.employeeId, {
+        conversationType: 'group',
+        conversationId: 'oc_removed',
+      }).storeIds,
+      ['memstore-self'],
     );
     syncBotGroup(w, ada.employeeId, { chatId: 'oc_removed', joined: true, time: 400 });
     assert.ok(w.read().state.groups[0].employeeIds.includes(ada.employeeId));

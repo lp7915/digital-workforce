@@ -15,19 +15,35 @@ export const runLark: Run = async (args) => {
       maxBuffer: 2 * 1024 * 1024,
       env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' },
     }));
-  } catch {
-    throw new DomainError('飞书操作失败，请检查本机飞书 CLI 登录、群聊权限及应用可用范围后重试。', 502);
+  } catch (error) {
+    // CLI 的非零退出也会在 stdout 返回结构化 API 错误；只解析 JSON，不暴露请求及凭证。
+    const failed = error as { stdout?: string; killed?: boolean };
+    if (!failed.killed && typeof failed.stdout === 'string' && failed.stdout.trim())
+      return parseLarkResult(failed.stdout, true);
+    throw new DomainError('飞书操作未完成，请检查本机 CLI 状态；如已发起添加，请先核查群成员再重试。', 502);
   }
+  return parseLarkResult(output);
+};
+
+export function parseLarkResult(output: string, failed = false) {
   let result: any;
   try {
     result = JSON.parse(output);
   } catch {
     throw new DomainError('飞书返回数据无效', 502);
   }
-  if (result.ok === false || (result.code !== undefined && result.code !== 0))
-    throw new DomainError('飞书拒绝操作，请检查当前用户权限及应用可用范围。', 502);
+  if (failed || result.ok === false || (result.code !== undefined && result.code !== 0)) {
+    const code = result.error?.code ?? result.code;
+    if (Number(code) === 232033)
+      throw new DomainError(
+        '此群为外部群，当前操作应用或被邀请机器人未获准执行外部群操作（飞书错误 232033）。请核查应用对外共享能力、可用范围及外部群限制后重试。',
+        403,
+      );
+    const suffix = Number.isSafeInteger(Number(code)) ? `（飞书错误 ${Number(code)}）` : '';
+    throw new DomainError(`飞书拒绝操作${suffix}，请检查当前用户权限及应用可用范围。`, 502);
+  }
   return result.data ?? result;
-};
+}
 
 export class FeishuGroups {
   private workspace: LocalWorkspace;

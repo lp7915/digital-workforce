@@ -15,6 +15,7 @@ import type { InboxBinding, InboxTask, InboxPreparation } from "./message-inbox.
 import type { SessionCreationRecord } from "./session-creation-state.ts";
 import type { AttachmentStage, AttachmentStageDetails } from "./attachment-trace.ts";
 import { ArkHttpError } from "./ark.ts";
+import { gatewayDiagnostic, localFailure } from "./gateway-diagnostics.ts";
 import { ArkRunError, failureDiagnostic } from "./ark-errors.ts";
 import { isFailureNoticeDelivered } from "./failure-notice.ts";
 import { PreparationRunner, PreparationCheckpointError } from "./preparation-runner.ts";
@@ -67,6 +68,8 @@ export class KeyedQueue {
     return queued;
   }
 
+  isRunning(key: string): boolean { return Boolean(this.scopes.get(key)?.running); }
+
   pause(key: string): void { this.state(key).paused = true; }
   resume(key: string): void {
     const state = this.scopes.get(key);
@@ -93,6 +96,9 @@ export class KeyedQueue {
 
 export class Gateway {
   private queue = new KeyedQueue();
+  private resetScopes = new Set<string>();
+  private queueEpochs = new Map<string, number>();
+  private resetEpochs = new Map<string, number>();
   private authorizationWaits = new Map<string, Set<string>>();
   private inboxScheduled = new Set<string>();
   private inboxBlockedScopes = new Set<string>();
@@ -100,9 +106,40 @@ export class Gateway {
   private inboxRecoveryBatches = new Map<string, Promise<void>>();
   private reactionCleanups = new Map<string, Promise<void>>();
   private configurationWarnings = new Set<string>();
+  private diagnosticNotices = new Set<string>();
+  private diagnosticNotes = new Map<string, string[]>();
+
+  private diagnosticKey(message: IncomingMessage): string {
+    return JSON.stringify([message.channelType, message.installationId, message.tenantId, message.conversationId, message.messageId]);
+  }
+
+  private async reportGatewayFailure(message: IncomingMessage, stage: string, error: unknown, sessionId?: string): Promise<void> {
+    if (!this.options.reportDiagnostics) return;
+    const key = this.diagnosticKey(message), noticeKey = `${key}:${stage}`;
+    if (this.diagnosticNotices.has(noticeKey)) return;
+    this.diagnosticNotices.add(noticeKey);
+    if (this.diagnosticNotices.size > 2000) this.diagnosticNotices.delete(this.diagnosticNotices.values().next().value!);
+    try {
+      const logs = [...(this.diagnosticNotes.get(key) || [])];
+      try {
+        const traces = this.store.attachmentTrace.listForInstallation(message.channelType, message.installationId).items
+          .filter(item => item.tenantId === message.tenantId && item.conversationId === message.conversationId
+            && item.threadId === message.threadId && item.startedAt >= message.createTime && item.status !== "succeeded"
+            && (!item.sessionId || item.sessionId === sessionId)).slice(0, 5);
+        logs.push(...traces.map(item => `附件 ${item.stage} / ${item.status} · 消息 ${item.messageId} · ${JSON.stringify(item.failure || {})}`));
+      } catch (traceError) { logs.push(`读取本地附件记录失败：${localFailure(traceError)}`); }
+      const text = await gatewayDiagnostic({ stage, messageId: message.messageId, sessionId, error, logs,
+        readEvents: this.ark.diagnosticEvents ? (id, signal) => this.ark.diagnosticEvents!(id, signal) : undefined });
+      console.warn(text);
+      await this.replyText(message, text);
+    } catch (diagnosticError) {
+      // 诊断失败不能递归发送或改变业务任务状态。
+      console.warn("发送 Gateway 诊断失败：", localFailure(diagnosticError));
+    }
+  }
   private store: GatewayStore;
   private ark: Pick<ArkClient, "createSession" | "run"> & Partial<Pick<
-    ArkClient, "buildSessionCreateRequest" | "uploadFile" | "waitForFileActive" | "inspectFileUpload" | "addSessionFile" | "addSessionResource" | "inspectFileMount" | "getSessionStats" | "inspectSessionReadiness" | "inspectSessionCreation" | "inspectCompaction" | "inspectRun"
+    ArkClient, "buildSessionCreateRequest" | "uploadFile" | "waitForFileActive" | "inspectFileUpload" | "addSessionFile" | "addSessionResource" | "inspectFileMount" | "getSessionStats" | "inspectSessionReadiness" | "inspectSessionCreation" | "inspectCompaction" | "inspectRun" | "diagnosticEvents"
   >>;
   private reply: Reply;
   private options: GatewayOptions;
@@ -110,7 +147,7 @@ export class Gateway {
   constructor(
     store: GatewayStore,
     ark: Pick<ArkClient, "createSession" | "run"> & Partial<Pick<
-      ArkClient, "buildSessionCreateRequest" | "uploadFile" | "waitForFileActive" | "inspectFileUpload" | "addSessionFile" | "addSessionResource" | "inspectFileMount" | "getSessionStats" | "inspectSessionReadiness" | "inspectSessionCreation" | "inspectCompaction" | "inspectRun"
+      ArkClient, "buildSessionCreateRequest" | "uploadFile" | "waitForFileActive" | "inspectFileUpload" | "addSessionFile" | "addSessionResource" | "inspectFileMount" | "getSessionStats" | "inspectSessionReadiness" | "inspectSessionCreation" | "inspectCompaction" | "inspectRun" | "diagnosticEvents"
     >>,
     reply: Reply,
     options: GatewayOptions
@@ -131,6 +168,15 @@ export class Gateway {
     if (!shouldHandleMessage(message)) return false;
     const control = (message.text.trim() === "/auth status" && this.options.authorizationStatus)
       || (message.conversationType === "direct" && message.text.trim() === "/auth cancel" && this.options.cancelAuthorization);
+    if (this.options.sharedGroupSessions && message.conversationType === "group") {
+      try { this.conversationKey(message); }
+      catch (error) {
+        void this.replyText(message, error instanceof Error ? error.message : "群会话分组核查失败，本次消息未入队")
+          .catch(() => console.warn("发送群会话分支冲突提示失败"));
+        return false;
+      }
+    }
+    if (message.text.trim() === "/new") return this.acceptReset(message);
     if (this.options.durableQueue && !control) {
       const task = this.store.receiveMessage(message, this.inboxBinding(message));
       if (!task) return false;
@@ -188,8 +234,88 @@ export class Gateway {
       } finally {
         clearInterval(heartbeat);
       }
-    }, false, resetControl);
+    }, false, resetControl, () => clearInterval(heartbeat));
     return true;
+  }
+
+  private acceptReset(message: IncomingMessage): boolean {
+    if (!this.store.claimControlEvent(message)) return false;
+    void this.resetConversation(message).catch(async error => {
+      this.store.completeEvent(message.channelType, message.installationId, message.messageId, "failed");
+      try { await this.replyText(message, `未重置会话：${error instanceof Error ? error.message : "恢复核查失败"}。旧 Session 与未处理消息仍保留。`); }
+      catch { console.warn("发送会话恢复失败提示未完成"); }
+    });
+    return true;
+  }
+
+  private async resetConversation(message: IncomingMessage): Promise<void> {
+    if (!this.options.platformAccess && message.senderId !== this.options.authorizedUserId)
+      throw new Error("当前用户未授权");
+    const key = this.conversationKey(message), scope = this.store.conversationKey(key);
+    if (this.resetScopes.has(scope)) throw new Error("此会话正在恢复，请等待本次结果");
+    if (this.queue.isRunning(scope)) throw new Error("本机仍有任务执行中，/new 未排队，请待任务结束后重试");
+    if (this.usesIsolatedSession(message)) {
+      await this.replyText(message, "当前模式每条消息都会创建独立 Agent Session，无需手动开启新会话。");
+      this.store.completeEvent(message.channelType, message.installationId, message.messageId, "completed");
+      return;
+    }
+    this.resetScopes.add(scope);
+    this.queue.pause(scope);
+    const epoch = (this.queueEpochs.get(scope) || 0) + 1;
+    this.queueEpochs.set(scope, epoch);
+    let succeeded = false;
+    try {
+      if (this.store.sessionCreations.pending(scope)) throw new Error("此前 Session 创建结果待核实，不能跳过未决创建");
+      const tasks: InboxTask[] = [];
+      if (this.options.durableQueue) {
+        let after = 0;
+        do {
+          const page = this.store.inbox.listPending(message.channelType, message.installationId, this.options.agentId, after);
+          tasks.push(...page.tasks.filter(task => task.binding.scope === scope));
+          if (!page.next) break;
+          after = page.next;
+        } while (true);
+        if (message.conversationType === "direct") {
+          await this.options.cancelAuthorization?.(message);
+          for (let i = tasks.length - 1; i >= 0; i--) {
+            const current = this.store.inbox.findTask(tasks[i].id)!;
+            if (["completed", "failed"].includes(current.state)) tasks.splice(i, 1);
+            else tasks[i] = current;
+          }
+        }
+        for (let i = 0; i < tasks.length; i++) {
+          const task = tasks[i];
+          if (this.inboxReconciliations.has(task.id)) throw new Error("旧任务正在核查，请稍后重试");
+          if (task.state === "uncertain" && task.interruptedAt === "dispatched") {
+            if (!this.ark.inspectRun || !task.sessionId || !task.requestFingerprint)
+              throw new Error("旧任务缺少可核查的 MA 派发证据");
+            const controller = new AbortController();
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+              const observation = await Promise.race([this.ark.inspectRun(task.sessionId, task.requestFingerprint, controller.signal),
+                new Promise<RunInspection>(resolve => { timer = setTimeout(() => { controller.abort(); resolve({ status: "unknown", reason: "history_unavailable" }); }, 10_000); })]);
+              if (observation.status !== "ended") throw new Error("尚未确认原 MA 运行已结束，请检查运行记录后重试 /new");
+              tasks[i] = this.store.recordMessageInspection(task, observation);
+            } catch { throw new Error("无法确认旧 MA 运行安全结束，请检查运行记录后重试 /new"); }
+            finally { clearTimeout(timer); controller.abort(); }
+          }
+        }
+        this.store.resetConversationQueue(key, tasks, message);
+        for (const task of tasks) this.inboxScheduled.delete(task.id);
+      } else {
+        if (message.conversationType === "direct") await this.options.cancelAuthorization?.(message);
+        this.store.resetSession(key);
+      }
+      this.resetEpochs.set(scope, epoch);
+      this.inboxBlockedScopes.delete(scope);
+      succeeded = true;
+      this.store.completeEvent(message.channelType, message.installationId, message.messageId, "completed");
+      try { await this.replyText(message, `已开启新会话，已清理 ${tasks.length} 条旧排队或异常消息。下一条消息会创建新的 Agent Session；历史记录保留，已发生的操作不会撤销。`); }
+      catch { console.warn("会话已重置，但成功回执发送失败，请查看本地审计"); }
+    } finally {
+      this.resetScopes.delete(scope);
+      if (succeeded || (!this.inboxBlockedScopes.has(scope) && !this.authorizationWaits.get(scope)?.size)) this.queue.resume(scope);
+    }
   }
 
   private inboxBinding(message: IncomingMessage): InboxBinding {
@@ -217,7 +343,7 @@ export class Gateway {
       || task.binding.agentId !== this.options.agentId) throw new Error("任务不存在或不属于当前数字员工");
     if (!Number.isSafeInteger(revision) || task.revision !== revision || task.state !== "uncertain") throw new Error("任务版本或状态已变化，请刷新后再处理");
     if (!["reconcile", "discard", "resume_prepared"].includes(action)) throw new Error("任务操作无效");
-    if (this.inboxReconciliations.has(task.id)) throw new Error("任务正在核查，请等待后刷新");
+    if (this.inboxReconciliations.has(task.id) || this.resetScopes.has(task.binding.scope)) throw new Error("任务正在核查，请等待后刷新");
     if (!this.recoveryBindingMatches(task)) throw new Error("任务绑定已变化，不能处理旧运行");
     if (action === "resume_prepared") {
       if (!this.ark.inspectSessionReadiness || task.interruptedAt !== "preparing" || !task.preparation
@@ -332,7 +458,7 @@ export class Gateway {
   private releaseInboxScope(task: InboxTask): void {
     if (!this.store.inbox.hasBlockingTasks(task.message, task.binding)) {
       this.inboxBlockedScopes.delete(task.binding.scope);
-      if (!this.authorizationWaits.get(task.binding.scope)?.size) this.queue.resume(task.binding.scope);
+      if (!this.resetScopes.has(task.binding.scope) && !this.authorizationWaits.get(task.binding.scope)?.size) this.queue.resume(task.binding.scope);
     }
   }
 
@@ -344,7 +470,10 @@ export class Gateway {
     for (const task of pending.awaitingAuthorization) {
       if (!this.store.settleAuthorizationMessage(task.message)) this.queue.pause(task.binding.scope);
     }
-    for (const task of pending.queued) this.scheduleInboxTask(task);
+    for (const task of pending.queued) {
+      try { this.scheduleInboxTask(task); }
+      catch { console.warn("旧排队任务的群会话分支冲突，保留记录，未自动重放"); }
+    }
     const batchKey = JSON.stringify([channelType, installationId]);
     if ((this.ark.inspectRun || this.ark.inspectSessionReadiness || this.ark.inspectSessionCreation) && pending.interrupted.length && !this.inboxRecoveryBatches.has(batchKey)) {
       // 恢复查询逐个执行，避免启动时对MA产生并发查询风暴；其他scope的正常业务不被暂停。
@@ -359,7 +488,7 @@ export class Gateway {
   async reconcilePendingMessage(message: IncomingMessage): Promise<void> {
     if (!this.options.durableQueue) return;
     const task = this.store.inbox.findMessage(message);
-    if (!task || task.state !== "uncertain") return;
+    if (!task || task.state !== "uncertain" || this.resetScopes.has(task.binding.scope)) return;
     const previous = this.inboxReconciliations.get(task.id);
     if (previous) return previous;
     const operation = Promise.resolve().then(async () => {
@@ -418,9 +547,10 @@ export class Gateway {
       if (!inspected.replyConfirmed) return;
       this.store.settleInspectedMessage(inspected);
       this.releaseInboxScope(task);
-    }).catch(() => {
+    }).catch(async (error) => {
       this.blockInboxScope(task.binding.scope);
       console.warn("原运行核查或检查点保存失败，未重发任务或解除暂停");
+      await this.reportGatewayFailure(message, "原运行核查或检查点保存", error, task.sessionId);
     }).finally(() => this.inboxReconciliations.delete(task.id));
     this.inboxReconciliations.set(task.id, operation);
     return operation;
@@ -473,7 +603,7 @@ export class Gateway {
           try { this.finishInboxProcessing(task.message, true); }
           catch { console.warn("准备恢复检查点更新失败，继续保留暂停"); }
           this.blockInboxScope(task.binding.scope);
-          try { await this.replyText(task.message, "原任务恢复未完成。Session 和排队消息已保留；为避免重复操作，已暂停此会话自动投递，请检查运行记录。"); }
+          try { await this.replyText(task.message, "原任务恢复未完成。Session 和排队消息已保留；为避免重复操作，已暂停此会话自动投递。可发送 /new 核查并清理旧队列，开启新会话；未确认结束的运行会保留。"); }
           catch { console.warn("发送准备恢复异常提示失败"); }
           console.warn("准备恢复未完成，保留检查点与会话暂停");
         } else {
@@ -580,7 +710,7 @@ export class Gateway {
         claimed = true;
         await this.withReaction(message, hasReaction => this.process(message, key, undefined, hasReaction, undefined, task.id));
         this.finishInboxProcessing(message);
-      } catch {
+      } catch (error) {
         try { if (claimed) this.finishInboxProcessing(message, true); }
         catch { console.error("持久化执行检查点更新失败，已暂停该会话"); }
         this.blockInboxScope(task.binding.scope);
@@ -588,7 +718,12 @@ export class Gateway {
           await this.reconcilePendingMessage(message);
           if (this.store.inbox.findMessage(message)?.state === "completed") return;
         }
-        try { await this.replyText(message, "任务执行或配置校验未完成。原Session和排队消息已保留；为避免重复操作，已暂停此会话自动投递，请检查运行记录。"); }
+        if (!this.diagnosticNotices.has(`${this.diagnosticKey(message)}:任务执行`)) {
+          let sessionId: string | undefined;
+          try { sessionId = this.store.inbox.findMessage(message)?.sessionId || this.store.getSession(key); } catch {}
+          await this.reportGatewayFailure(message, "任务调度或配置校验（会话已暂停）", error, sessionId);
+        }
+        try { await this.replyText(message, "任务执行或配置校验未完成。原Session和排队消息已保留；为避免重复操作，已暂停此会话自动投递。可发送 /new 核查并清理旧队列，开启新会话；未确认结束的运行会保留。"); }
         catch { console.warn("发送持久化任务异常提示失败"); }
       } finally { this.inboxScheduled.delete(task.id); }
     }, false, resetControl);
@@ -629,7 +764,7 @@ export class Gateway {
         waits.delete(flowId);
         if (waits.size) continue;
         this.authorizationWaits.delete(key);
-        if (!this.inboxBlockedScopes.has(key)) this.queue.resume(key);
+        if (!this.resetScopes.has(key) && !this.inboxBlockedScopes.has(key)) this.queue.resume(key);
       }
     }
   }
@@ -718,16 +853,22 @@ export class Gateway {
     });
   }
 
-  private schedule(message: IncomingMessage, key: ConversationKey, task: () => Promise<void>, priority = false, control = false): void {
+  private schedule(message: IncomingMessage, key: ConversationKey, task: () => Promise<void>, priority = false, control = false, onDiscard?: () => void): void {
     if (this.usesIsolatedSession(message)) {
       void Promise.resolve().then(task);
       return;
     }
+    const scope = this.store.conversationKey(key), epoch = this.queueEpochs.get(scope) || 0;
     let queuedReaction = Promise.resolve<{ id: string; receiptId?: string } | undefined>(undefined);
     const queued = this.queue.enqueue(this.store.conversationKey(key), async () => {
       const reaction = await queuedReaction;
       if (reaction && this.options.removeReaction) {
         await this.removeTrackedReaction(message, reaction.id, reaction.receiptId);
+      }
+      if (epoch < (this.resetEpochs.get(scope) || 0)) {
+        onDiscard?.();
+        if (!this.options.durableQueue) this.store.completeEvent(message.channelType, message.installationId, message.messageId, "failed");
+        return;
       }
       await task();
     }, priority, control);
@@ -747,7 +888,8 @@ export class Gateway {
   }
 
   private conversationKey(message: IncomingMessage): ConversationKey {
-    return toConversationKey(message, Boolean(this.options.sharedGroupSessions));
+    const key = toConversationKey(message, Boolean(this.options.sharedGroupSessions));
+    return this.options.sharedGroupSessions && message.conversationType === "group" ? this.store.sharedGroupKey(key) : key;
   }
 
   private async recoverSessionCreation(message: IncomingMessage, key: ConversationKey): Promise<SessionCreationRecord | undefined> {
@@ -1299,6 +1441,8 @@ export class Gateway {
         await this.handleAuthorizationRequired(message, sessionId, startedAt, result.authorizationRequired, result.evidence, inboxId);
         return;
       }
+      if (this.diagnosticNotes.has(this.diagnosticKey(message)))
+        await this.reportGatewayFailure(message, "历史附件处理（主任务已返回）", new Error("部分历史附件未能读取，详见阶段记录"), sessionId);
       const finalReply = withNotices(resultToReply(result));
       if (progressTimer) clearTimeout(progressTimer);
       await progressReply;
@@ -1316,6 +1460,7 @@ export class Gateway {
         ...(result.fileObservation ? { fileObservation: result.fileObservation } : {})
       });
     } catch (error) {
+      await this.reportGatewayFailure(message, "任务执行", error, sessionId);
       this.store.addAuditLog({
         channelType: message.channelType, installationId: message.installationId,
         tenantKey: message.tenantId, openId: message.senderId, chatId: message.conversationId, messageId: message.messageId,
@@ -1327,6 +1472,7 @@ export class Gateway {
       });
       throw error;
     } finally {
+      this.diagnosticNotes.delete(this.diagnosticKey(message));
       if (progressTimer) clearTimeout(progressTimer);
     }
   }
@@ -1647,6 +1793,10 @@ export class Gateway {
         if (error instanceof PreparationCheckpointError) throw error;
         const reason = attachmentError(error);
         notices.push(`附件「${name}」未能读取：${reason}`);
+        const diagnosticKey = this.diagnosticKey(trigger);
+        const notes = this.diagnosticNotes.get(diagnosticKey) || [];
+        notes.push(`历史附件消息 ${item.messageId}：${localFailure(error)}`);
+        this.diagnosticNotes.set(diagnosticKey, notes.slice(-8));
         console.warn(`挂载历史群聊附件 ${name} 失败：`, reason);
         updated.set(item.messageId, { ...current, attachmentPending: true, text: `${current.text}\n[该附件未能挂载：${reason.slice(0, 160)}]` });
       }
@@ -1805,6 +1955,8 @@ export function shouldHandleMessage(message: IncomingMessage): boolean {
 }
 
 export type GatewayOptions = {
+  // 生产入口显式启用群内诊断；嵌入式 Gateway 保持既有回复契约。
+  reportDiagnostics?: boolean;
   // 可选业务层钩子；业务存储和权限不暴露为模型工具。
   handleBusinessCommand?: (message: IncomingMessage) => Promise<string | undefined>;
   validateBusinessSession?: (message: IncomingMessage, sessionId: string) => Promise<void>;
@@ -1990,7 +2142,7 @@ export function toConversationKey(message: IncomingMessage, sharedGroupSessions 
   return {
     channelType: message.channelType,
     installationId: message.installationId,
-    tenantId: message.tenantId,
+    tenantId: sharedGroupSessions && message.conversationType === "group" ? "@shared-group" : message.tenantId,
     conversationId: message.conversationId,
     threadId: message.threadId,
     senderId: sharedGroupSessions && message.conversationType === "group" ? "" : message.senderId

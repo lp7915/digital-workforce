@@ -261,7 +261,9 @@ function validateInput(value: SessionCreationInput): void {
     || !identifier(value.agentId, 256) || !identifier(value.configFingerprint, 256) || typeof value.reusable !== "boolean"
     || !Array.isArray(value.mounts) || value.mounts.length > 128) throw new Error("Session创建数据缺少有效绑定或结构");
   for (const field of ["channelType", "installationId", "tenantId", "conversationId", "threadId"] as const) {
-    if (!identifier(key[field], 512, field === "threadId") || key[field] !== message[field]) throw new Error("Session创建会话范围与消息不一致");
+    const sharedTenant = field === "tenantId" && message.conversationType === "group" && key.senderId === ""
+      && (key.tenantId === "@shared-group" || key.sharedGroup === true);
+    if (!identifier(key[field], 512, field === "threadId") || (!sharedTenant && key[field] !== message[field])) throw new Error("Session创建会话范围与消息不一致");
   }
   if (!identifier(message.senderId) || !identifier(key.senderId, 512, true)
     || (key.senderId !== message.senderId && !(message.conversationType === "group" && key.senderId === ""))
