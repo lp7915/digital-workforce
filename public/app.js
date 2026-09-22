@@ -257,8 +257,10 @@ async function request(path, method = 'GET', body) {
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(
-      path.startsWith('/feishu-groups') || /^\/projects\/[^/]+\/groups\/[^/]+\/employees$/.test(path)
-        ? 120000
+      path.startsWith('/employee-templates/') ||
+        path.startsWith('/feishu-groups') ||
+        /^\/projects\/[^/]+\/groups\/[^/]+\/employees$/.test(path)
+        ? 180000
         : 15000,
     ),
   });
@@ -614,7 +616,7 @@ async function openMaConfig() {
       <form id="ma-config-form" autocomplete="off"><label for="ma-api-key">方舟 API Key</label>
       <input id="ma-api-key" type="password" name="apiKey" autocomplete="new-password" maxlength="4096" required placeholder="${state.configured ? '输入新密钥以替换；留空不修改' : '输入具备 MA 权限的 API Key'}" />
       <p id="ma-verification-message" class="muted" role="status">${esc(state.message)}</p>
-      <p class="muted">初始化会核验并补齐 ADA 技能、环境、记忆库、Agent 与 Bot 凭证。已存在的资源会复用；已删除且无备份的记忆只能重建空库。初始化会暂停飞书 Channel，完成后需重启本机服务并发送 /new。</p><div id="ma-initialization-status" role="status"></div>
+      <p class="muted">初始化会核验并补齐已有 ADA / 社媒热点员工的配套技能、环境、记忆库、Agent 与 Bot 凭证。已存在的资源会复用；已删除且无备份的记忆只能重建空库。初始化会暂停飞书 Channel，完成后需重启本机服务并发送 /new。</p><div id="ma-initialization-status" role="status"></div>
       <div class="actions form-actions">${button('取消', 'close')}${state.configured ? button('重新验证已保存密钥', 'verify-ma') + button('一键初始化 MA 资源', 'initialize-ma') : ''}<button class="primary" type="submit">保存并验证</button></div></form>`,
     );
   } catch (error) {
@@ -940,7 +942,7 @@ function overview(module) {
     head(
       names[module],
       employees ? '配置数字员工，让能力在项目中复用。' : '连接群聊与成员，沉淀共同的项目记忆。',
-      (employees ? button('初始化 ADA', 'initialize-ada') : '') +
+      (employees ? button('初始化数字员工', 'choose-employee-template') : '') +
         button(
           employees ? '＋ 创建员工' : '＋ 创建项目',
           employees ? 'new-employee' : 'new-project',
@@ -956,6 +958,25 @@ function overview(module) {
       )
       .join('') +
     `</div><div id="filter-empty" hidden>${empty('没有匹配结果', '换个关键词试试。')}</div>`
+  );
+}
+async function chooseEmployeeTemplate() {
+  try {
+    const result = await request('/employee-templates');
+    modal(
+      '初始化数字员工',
+      `<p class="muted">选择场景创建完整配置。有方舟 Key 时先上传或复用 MA 技能，再绑定到员工；已有员工保留修改。未配置 Key 时仅创建配置，技能待初始化。</p><div class="grid compact-cards">${result.templates.map((template) => `<article class="entity-card"><h3>${esc(template.name)}</h3><p>${esc(template.description)}</p><p class="muted">${template.skills.length} 个配套 Skill · 方法规范与记忆模板</p><p class="muted">${template.dependencies.map((d) => esc(d.name)).join(' · ')}</p>${button('初始化 / 补齐技能', 'initialize-template', template.key, true)}</article>`).join('')}</div><p id="template-init-progress" role="status"></p>`,
+    );
+  } catch (error) {
+    toast(error.message);
+  }
+}
+function templateDependencies(e) {
+  if (!Array.isArray(e.dependencies) || !e.dependencies.length) return '';
+  return panel(
+    '场景依赖',
+    '下面是配置要求，尚未进行外部连通性验证。具体契约在员工记忆 config/dependencies.json 中。',
+    `<div class="grid compact-cards">${e.dependencies.map((d) => `<article class="entity-card"><h3>${esc(d.name)}</h3>${badge(d.status)}<p>${esc(d.description)}</p></article>`).join('')}</div>`,
   );
 }
 function employeeDetail(e, section) {
@@ -974,6 +995,7 @@ function employeeDetail(e, section) {
         ],
       )}<div class="full">${area('描述', 'description', e.description, 3)}</div></div>`,
     );
+  if (section === 'basic') content += templateDependencies(e);
   if (section === 'identity')
     content = panel(
       '身份',
@@ -1378,18 +1400,28 @@ document.addEventListener('click', async (event) => {
     closeModal();
   }
   const { owner } = context();
-  if (action === 'initialize-ada') {
-    target.disabled = true;
+  if (action === 'choose-employee-template') return chooseEmployeeTemplate();
+  if (action === 'initialize-template' || action === 'initialize-ada') {
+    const buttons = [...document.querySelectorAll('[data-action="initialize-template"]')];
+    buttons.forEach((b) => (b.disabled = true));
+    const progress = $('#template-init-progress');
+    if (progress) progress.textContent = '正在初始化配置并核验 MA 技能，请稍候。可在任务页查看进度。';
     try {
-      const result = await request('/employee-templates/ada/initialize', 'POST', {});
+      const result = await request(
+        `/employee-templates/${encodeURIComponent(action === 'initialize-ada' ? 'ada' : id)}/initialize`,
+        'POST',
+        {},
+      );
       acceptServer(result);
-      history.pushState(null, '', `#employees/${result.employeeId}/identity`);
+      closeModal();
+      history.pushState(null, '', `#employees/${result.employeeId}/basic`);
       render();
-      toast(result.created ? 'ADA 已初始化，可查看配置并连接飞书' : 'ADA 已存在，已打开配置');
+      toast(result.message || (result.created ? '员工已初始化' : '已打开现有员工'));
     } catch (error) {
+      if (progress?.isConnected) progress.textContent = error.message;
       toast(error.message);
     } finally {
-      target.disabled = false;
+      buttons.forEach((b) => (b.disabled = false));
     }
     return;
   }
