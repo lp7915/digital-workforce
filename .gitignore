@@ -9,3 +9,8 @@ work/
 *.db-shm
 *.db-wal
 outputs/*.log
+
+.DS_Store
+log/
+outputs/feishu-onboarding.png
+outputs/feishu-permissions-upgrade.png

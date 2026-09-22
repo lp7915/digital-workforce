@@ -17,3 +17,7 @@
 设计仍为待评审方向。MA 原生 Memory 不参与首版本地业务权限；采用 Gateway SQLite 存储，原生 Memory 的只读/版本/动态挂载契约未验证。
 已阅读企业应用设计、building-with-volcano-managed-agents-api 技能及其四份 references。
 2026-09-20 官方文档入口 https://docs.volcengine.com/docs/82379/2555910?lang=zh 读取失败。MA 请求复用已有契约测试，真实端到端另行验证。
+
+## 2026-09-22 私有仓库发布
+
+根据用户本次指示，将本项目及其 Git 历史发布至 GitHub 私有仓库，用于协作交付；未授予开源许可。API Key、飞书凭据、数据库、运行日志及授权二维码不上传。以上早期设计和验收结论为历史记录，当前能力以仓库 README 为准。
