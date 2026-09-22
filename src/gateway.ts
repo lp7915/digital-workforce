@@ -539,7 +539,11 @@ export class Gateway {
         if (request && matches()) {
           let proof: ReplyObservation;
           try { proof = await this.options.recoverReply(inspected.message, request, AbortSignal.timeout(20_000)); }
-          catch (error) { console.warn("回复补发核查未完成，保留原任务：", failureDiagnostic(error)); proof = { status: "unknown", reason: "unavailable" }; }
+          catch (error) {
+            console.warn("回复补发核查未完成，保留原任务：", failureDiagnostic(error));
+            await this.reportGatewayFailure(inspected.message, "回复补发核查", error, inspected.sessionId);
+            proof = { status: "unknown", reason: "unavailable" };
+          }
           if (!matches()) return;
           if (proof.status === "confirmed") inspected = this.store.inbox.confirmRecoveredReply(inspected, request, proof);
         }
