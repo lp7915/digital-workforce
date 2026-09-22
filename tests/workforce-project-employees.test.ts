@@ -120,3 +120,59 @@ test('群消息补齐遗漏入群关系，旧消息不覆盖退群记录', () =>
     w.close();
   }
 });
+
+test('明确退群后消息不恢复成员，其他机器人及项目保留，新进群事件可以恢复', () => {
+  const w = new LocalWorkspace(':memory:');
+  try {
+    const ada = initializeAda(w);
+    const initial = w.read();
+    initial.state.employees.push({ ...structuredClone(initial.state.employees[0]), id: 'other' });
+    w.save(initial.state, initial.revision);
+    syncBotGroup(w, ada.employeeId, { chatId: 'oc_removed', joined: true, time: 100 });
+    syncBotGroup(w, 'other', { chatId: 'oc_removed', joined: true, time: 110 });
+    syncBotGroup(w, ada.employeeId, { chatId: 'oc_removed', joined: false, time: 200 });
+    syncMessageGroup(w, ada.employeeId, {
+      conversationType: 'group',
+      conversationId: 'oc_removed',
+      createTime: 300,
+    });
+    assert.deepEqual(w.read().state.groups[0].employeeIds, ['other']);
+    assert.throws(
+      () =>
+        memoryScope(w.read().state, ada.employeeId, {
+          conversationType: 'group',
+          conversationId: 'oc_removed',
+        }),
+      /群聊未关联/,
+    );
+    syncBotGroup(w, ada.employeeId, { chatId: 'oc_removed', joined: true, time: 400 });
+    assert.ok(w.read().state.groups[0].employeeIds.includes(ada.employeeId));
+    syncBotGroup(w, ada.employeeId, { chatId: 'oc_unknown', joined: false, time: 500 });
+    syncMessageGroup(w, ada.employeeId, {
+      conversationType: 'group',
+      conversationId: 'oc_unknown',
+      createTime: 600,
+    });
+    assert.deepEqual(w.read().state.groups.find((g) => g.chatId === 'oc_unknown').employeeIds, []);
+  } finally {
+    w.close();
+  }
+});
+
+test('退群事件的微秒时间转换为毫秒', async () => {
+  const channel = createLarkChannel({ appId: 'test', appSecret: 'test' });
+  const seen: any[] = [];
+  registerGroupEvents(channel, 'test', (e) => seen.push(e));
+  (channel as any).registerDispatcherHandlers();
+  await (channel as any).dispatcher.invoke({
+    schema: '2.0',
+    header: {
+      event_id: 'remove-time',
+      event_type: 'im.chat.member.bot.deleted_v1',
+      create_time: '1790000000123000',
+    },
+    event: { chat_id: 'oc_demo', app_id: 'test' },
+  });
+  assert.equal(seen[0].time, 1790000000123);
+  assert.equal(seen[0].joined, false);
+});

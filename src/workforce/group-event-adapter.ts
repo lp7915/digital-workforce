@@ -9,7 +9,15 @@ export function registerGroupEvents(
   const receive = (joined: boolean) => (raw: any) => {
     if (raw.app_id && raw.app_id !== appId) return;
     if (!raw.chat_id) return;
-    handler({ chatId: raw.chat_id, joined, time: Number(raw.create_time) || undefined });
+    // 飞书事件头为微秒，消息 create_time 为毫秒；统一后才能正确比较乱序事件。
+    const timestamp = Number(raw.create_time);
+    const time =
+      Number.isFinite(timestamp) && timestamp > 0
+        ? timestamp > 1e14
+          ? Math.floor(timestamp / 1000)
+          : timestamp
+        : undefined;
+    handler({ chatId: raw.chat_id, joined, time });
   };
   // SDK connect 时会注册默认进群 dispatcher，必须通过公开事件监听保留回调。
   channel.on('botAdded', (event: any) => receive(true)({ ...event.raw, chat_id: event.chatId }));
