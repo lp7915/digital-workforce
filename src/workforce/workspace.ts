@@ -151,17 +151,8 @@ function validateState(value: unknown, previous: RecordData, memoryWrite = false
       if (!['read', 'write'].includes(assignment.permission)) throw new DomainError('员工记忆权限无效');
     }
     validateMemories(project);
-    const members = records(project.members, '项目成员');
-    if (!members.some((member) => member.permission === 'manage'))
-      throw new DomainError('项目至少保留一位管理成员');
-    const accounts = new Set();
-    for (const member of members) {
-      text(member.name, '成员名称');
-      text(member.account, '成员账号');
-      if (!['read', 'write', 'manage'].includes(member.permission)) throw new DomainError('成员权限无效');
-      if (accounts.has(member.account)) throw new DomainError('项目成员账号重复');
-      accounts.add(member.account);
-    }
+    // 兼容旧数据字段，项目成员不再参与授权或保存校验。
+    project.members ??= [];
     for (const group of records(project.groups, '项目群聊')) {
       text(group.name, '群聊名称');
       text(group.chatId, '群聊 ID');

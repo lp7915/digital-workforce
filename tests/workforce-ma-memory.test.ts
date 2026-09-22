@@ -290,7 +290,7 @@ test('MA 分页按 next_page 拉全，重复游标失败', async () => {
   );
   await assert.rejects(broken.entries('memstore-x'), /游标重复/);
 });
-test('整理 Agent 使用 MA Custom Tool 完成模拟写回链路，权限与来源范围由后端限定', async () => {
+test('整理 Agent 使用 MA Custom Tool 完成模拟写回链路，不要求项目成员权限但仍限制来源范围', async () => {
   const f = fixture();
   let organizer: MemoryOrganizer | undefined;
   try {
@@ -315,18 +315,9 @@ test('整理 Agent 使用 MA Custom Tool 完成模拟写回链路，权限与来
       agentId: 'agent-e',
       environmentId: 'env-e',
     }));
-    assert.throws(
-      () =>
-        organizer!.start(
-          { requestId: 'bad', projectId: 'p', employeeId: 'e', storeId: 'ps' },
-          'ou_reader',
-          'oc_group',
-        ),
-      /改写权限/,
-    );
     const job = organizer.start(
       { requestId: 'good', projectId: 'p', employeeId: 'e', storeId: 'ps' },
-      'ou_writer',
+      'ou_unlisted_user',
       'oc_group',
     );
     await assert.rejects(

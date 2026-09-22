@@ -333,7 +333,6 @@ const employeeTabs = {
 const projectTabs = {
   memories: '项目记忆',
   groups: '关联群聊',
-  members: '成员与权限',
 };
 function route() {
   const [module = 'employees', id, section] = location.hash.slice(1).split('/');
@@ -921,7 +920,7 @@ function overview(module) {
     items
       .map(
         (item) =>
-          `<article class="entity-card" data-search="${esc(item.name + ' ' + item.description)}"><div class="card-top">${entityMark(module, item.id)}${employees ? badge(item.activeVersion ? '已发布' : '草稿', item.activeVersion ? 'green' : '') : badge(`${item.groups.length} 个群聊`)}</div><h3><a href="#${module}/${item.id}">${esc(item.name)}</a></h3><p class="card-description">${esc(item.description || '暂无描述')}</p><div class="card-footer"><span>${employees ? `${item.skills.filter((s) => s.enabled).length} 项技能 · ${item.memoryStores.length} 个记忆库` : `${item.memoryStores.length} 个记忆库 · ${item.members.length} 位成员`}</span><a href="#${module}/${item.id}" aria-label="查看${esc(item.name)}">查看详情 →</a></div></article>`,
+          `<article class="entity-card" data-search="${esc(item.name + ' ' + item.description)}"><div class="card-top">${entityMark(module, item.id)}${employees ? badge(item.activeVersion ? '已发布' : '草稿', item.activeVersion ? 'green' : '') : badge(`${item.groups.length} 个群聊`)}</div><h3><a href="#${module}/${item.id}">${esc(item.name)}</a></h3><p class="card-description">${esc(item.description || '暂无描述')}</p><div class="card-footer"><span>${employees ? `${item.skills.filter((s) => s.enabled).length} 项技能 · ${item.memoryStores.length} 个记忆库` : `${item.memoryStores.length} 个记忆库`}</span><a href="#${module}/${item.id}" aria-label="查看${esc(item.name)}">查看详情 →</a></div></article>`,
       )
       .join('') +
     `</div><div id="filter-empty" hidden>${empty('没有匹配结果', '换个关键词试试。')}</div>`
@@ -1164,6 +1163,7 @@ function memoryList(owner, project) {
   return `<div class="section-toolbar"><div>${button('← 记忆库', 'back-stores')} <strong>${esc(store.name)}</strong></div><div class="actions">${button('刷新', 'refresh-memory')}${button('＋ 添加条目', 'add-memory', '', true)}</div></div><div class="memory-workspace"><nav class="memory-tree" aria-label="记忆路径树"><div class="memory-tree-head"><span>路径树</span><span>${entries.length}</span></div>${memoryTreeMarkup(memoryTree(entries))}</nav><section class="memory-document">${memoryDocument(entry)}</section></div>`;
 }
 function projectDetail(p, section) {
+  if (!Object.hasOwn(projectTabs, section)) section = 'memories';
   let content = '';
   if (section === 'memories')
     content =
@@ -1171,12 +1171,10 @@ function projectDetail(p, section) {
       memoryList(p, true);
   if (section === 'groups')
     content = `<div class="section-toolbar"><p class="muted">群内员工加载自身记忆和本项目记忆；关联变更后请使用 /new。</p><div class="actions">${button('＋ 从飞书关联群聊', 'browse-feishu-groups', '', true)}</div></div><div class="grid compact-cards">${p.groups.map((group) => `<article class="entity-card">${entityMark('groups', group.id)}<h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description resource-id" title="${esc(group.chatId)}">${esc(group.chatId)}</p><p class="muted">数字员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('添加数字员工', 'invite-project-group', group.id, true)}${button('解除关联', 'remove-group', group.id)}</div></article>`).join('')}</div>${!p.groups.length ? empty('尚未关联群聊', '将群聊关联到项目，组织项目协作。') : ''}`;
-  if (section === 'members')
-    content = `<div class="section-toolbar"><p class="muted">管理谁可以查看、改写记忆，以及维护成员。</p>${button('＋ 添加成员', 'add-member', '', true)}</div><div class="permission-legend"><span><b>查看</b> 只读项目记忆</span><span><b>改写</b> 可新增、编辑和删除记忆</span><span><b>管理</b> 改写记忆及管理成员</span></div><p class="demo-note">后台使用本机管理员身份；群里触发记忆整理时，将按消息发送者的飞书用户 ID 校验改写权限。</p><div class="grid compact-cards">${p.members.map((member) => `<article class="entity-card"><div class="card-top"><span class="member-avatar">${esc(member.name.slice(0, 1))}</span>${badge({ read: '查看', write: '改写', manage: '管理' }[member.permission])}</div><h3>${esc(member.name)}</h3><p class="card-description">${esc(member.account)}</p><div class="actions">${button('修改权限', 'edit-member', member.id)}${button('移除', 'remove-member', member.id)}</div></article>`).join('')}</div>`;
   return (
     '<a class="back" href="#projects">← 项目</a>' +
     head(p.name, p.description, button('编辑项目', 'edit-project')) +
-    `<div class="employee-summary"><span>项目记忆库<b>${p.memoryStores.length}</b></span><span>群聊<b>${p.groups.length}</b></span><span>成员<b>${p.members.length}</b></span></div>` +
+    `<div class="employee-summary"><span>项目记忆库<b>${p.memoryStores.length}</b></span><span>群聊<b>${p.groups.length}</b></span></div>` +
     tabs('projects', p.id, projectTabs, section) +
     content
   );
@@ -1311,17 +1309,6 @@ function editDialog(kind, item = {}) {
         '',
         item.availableEmployees.filter((e) => !item.employeeIds.includes(e.id)).map((e) => [e.id, e.name]),
       );
-  }
-  if (kind === 'member') {
-    title = item.id ? '修改成员权限' : '添加成员';
-    fields =
-      field('成员名称', 'name', item.name, '填写名称', true) +
-      field('成员标识', 'account', item.account, '飞书用户 open_id（与数字员工收到的身份一致）', true) +
-      select('项目权限', 'permission', item.permission || 'read', [
-        ['read', '查看 · 只读记忆'],
-        ['write', '改写 · 新增、编辑、删除记忆'],
-        ['manage', '管理 · 改写记忆及管理成员'],
-      ]);
   }
   if (kind === 'credential') {
     title = '登记凭证引用';
@@ -1593,11 +1580,6 @@ document.addEventListener('click', async (event) => {
     editingMemory = true;
     return render();
   }
-  if (action === 'edit-member')
-    return editDialog(
-      'member',
-      owner.members.find((m) => m.id === id),
-    );
   if (action === 'toggle-skill') {
     const skill = owner.skills.find((s) => s.id === id);
     skill.enabled = !skill.enabled;
@@ -1645,18 +1627,11 @@ document.addEventListener('click', async (event) => {
     }
     const collection = {
       'confirm-remove-group': 'groups',
-      'confirm-remove-member': 'members',
       'confirm-remove-skill': 'skills',
       'confirm-remove-credential': 'credentials',
       'confirm-delete-memory': 'memories',
     }[action];
     if (!collection) return;
-    if (
-      collection === 'members' &&
-      owner.members.find((m) => m.id === id)?.permission === 'manage' &&
-      owner.members.filter((m) => m.permission === 'manage').length === 1
-    )
-      return toast('请至少保留一位项目管理成员');
     owner[collection] = owner[collection].filter((item) => item.id !== id);
     closeModal();
     return commit('记录已移除');
@@ -1799,7 +1774,7 @@ document.addEventListener('submit', async (event) => {
         memories: [],
         employees: [],
         groups: [],
-        members: [{ id: uid(), name: '本机管理员', account: 'local-admin', permission: 'manage' }],
+        members: [],
       });
   }
   if (kind === 'store' || kind === 'memory') {
@@ -1837,24 +1812,6 @@ document.addEventListener('submit', async (event) => {
       submit.disabled = false;
     }
     return;
-  }
-  if (kind === 'member') {
-    if (!values.name || !values.account) return toast('请填写成员信息');
-    if (owner.members.some((m) => m.account.toLowerCase() === values.account.toLowerCase() && m.id !== id))
-      return toast('该成员已存在');
-    if (
-      id &&
-      owner.members.find((m) => m.id === id)?.permission === 'manage' &&
-      values.permission !== 'manage' &&
-      owner.members.filter((m) => m.permission === 'manage').length === 1
-    )
-      return toast('请至少保留一位项目管理成员');
-    if (id)
-      Object.assign(
-        owner.members.find((m) => m.id === id),
-        values,
-      );
-    else owner.members.push({ id: uid(), ...values });
   }
   if (kind === 'credential') {
     if (!values.name || !values.reference) return toast('请填写名称与引用标识');

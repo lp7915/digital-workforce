@@ -65,9 +65,6 @@ test('后端拒绝重复路径、非法目录、缺失管理员和无效员工�
     const duplicate = state();
     duplicate.projects[0].memories.push({ ...duplicate.projects[0].memories[0], id: 'other' });
     assert.throws(() => workspace.save(duplicate, 0), /路径/);
-    const missing = state();
-    missing.projects[0].members = [];
-    assert.throws(() => workspace.save(missing, 0), /管理成员/);
     const foreign = state();
     foreign.projects[0].groups[0].employeeId = 'missing';
     assert.throws(() => workspace.save(foreign, 0), /员工/);
@@ -243,5 +240,19 @@ test('群聊从项目迁移，可独立登记并关联多位员工，项目视�
     assert.throws(() => workspace.save(data, 3), /员工/);
   } finally {
     workspace.close();
+  }
+});
+
+test('项目不再要求管理成员，支持无成员字段或空名单', () => {
+  for (const absent of [true, false]) {
+    const workspace = new LocalWorkspace(':memory:');
+    try {
+      const input = state();
+      if (absent) delete input.projects[0].members;
+      else input.projects[0].members = [];
+      assert.doesNotThrow(() => workspace.save(input, 0));
+    } finally {
+      workspace.close();
+    }
   }
 });

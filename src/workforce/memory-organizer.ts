@@ -118,13 +118,6 @@ export class MemoryOrganizer {
       throw new DomainError('整理任务已取消', 409);
     const project = this.memories.owner('projects', job.projectId);
     if (
-      job.actorId !== 'local-admin' &&
-      !project.members.some(
-        (m: any) => m.account === job.actorId && ['write', 'manage'].includes(m.permission),
-      )
-    )
-      throw new DomainError('没有项目记忆改写权限，请在项目成员中配置该飞书用户 ID', 403);
-    if (
       !this.memories.workspace.read().state.employees.some((e: any) => e.id === job.employeeId && e.enabled)
     )
       throw new DomainError('数字员工已停用或删除', 403);
