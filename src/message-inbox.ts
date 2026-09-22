@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { runInputFingerprint, type PdfInputFile } from "./pdf-input.ts";
 import type { DatabaseSync } from "node:sqlite";
-import type { ChannelMessage, ReplyDeliveryEvent, ReplyObservation } from "./channel.ts";
+import type { ChannelMessage, ReplyDeliveryEvent, ReplyObservation, ReplyRecoveryRequest } from "./channel.ts";
 import { advanceReplyDelivery, replyContentFingerprint, replyInspectionQuery, replyProofMatches, validateReplyDelivery, validReplyFingerprint, type ReplyDeliveryState } from "./reply-delivery.ts";
 import type { CredentialStateStore } from "./credential-state.ts";
 import type { RunInspection, RunResult } from "./ark.ts";
@@ -100,6 +100,15 @@ export class MessageInbox {
       if (blocker) return undefined;
       return this.save(task, { ...task, state: "preparing", owner });
     });
+  }
+
+  cancelQueued(expected: InboxTask): InboxTask {
+    this.runtimeOwner();
+    const task = this.get(expected.id);
+    if (!task || task.state !== "queued" || task.revision !== expected.revision || hasDispatchEvidence(task)) {
+      throw new Error("已撤回消息已开始处理或版本变化，不能取消排队");
+    }
+    return this.save(task, { ...task, owner: this.runtimeOwner(), state: "failed" });
   }
 
   prepare(id: string, value: Omit<InboxPreparation, "fingerprint" | "preparedAt">): InboxTask {
@@ -284,6 +293,30 @@ export class MessageInbox {
       AND state NOT IN ('completed', 'failed') AND sequence>? ORDER BY sequence LIMIT 101`).all(channelType, installationId, agentId, after);
     const tasks = rows.slice(0, 100).map(row => this.decode(row));
     return { tasks, ...(rows.length > 100 ? { next: tasks.at(-1)!.sequence } : {}) };
+  }
+
+  replyRecoveryRequest(expected: InboxTask, content: string): ReplyRecoveryRequest | undefined {
+    const task = this.expectedUncertain(expected), run = task.inspection, delivery = task.delivery;
+    if (!task.dispatchId || task.interruptedAt !== "dispatched" || !run || run.observation.status !== "ended"
+      || run.observation.result.authorizationRequired || Date.now() - run.checkedAt > 30_000
+      || task.replyIntent?.resultFingerprint !== this.resultFingerprint(run.observation.result)
+      || task.replyIntent?.contentFingerprint !== replyContentFingerprint(content)
+      || delivery?.mode !== "native_card" || !["sent", "updating", "updated", "finalizing", "finalized"].includes(delivery.phase)
+      || !delivery.cardId || !delivery.elementId || delivery.messageIds?.length !== 1) return undefined;
+    return { cardId: delivery.cardId, elementId: delivery.elementId, messageId: delivery.messageIds[0],
+      sequence: delivery.sequence + 1, content, contentFingerprint: task.replyIntent.contentFingerprint };
+  }
+
+  confirmRecoveredReply(expected: InboxTask, request: ReplyRecoveryRequest, proof: ReplyObservation): InboxTask {
+    const task = this.expectedUncertain(expected), planned = this.replyRecoveryRequest(task, request.content), now = Date.now();
+    if (!planned || JSON.stringify(planned) !== JSON.stringify(request) || proof.status !== "confirmed"
+      || !replyProofMatches({ mode: "native_card", ...planned }, proof) || !Number.isSafeInteger(proof.observedAt)
+      || proof.observedAt < task.inspection!.checkedAt || proof.observedAt > now || now - proof.observedAt > 30_000) {
+      throw new Error("原卡片恢复回执与最终回复意图不一致");
+    }
+    return this.save(task, { ...task, replyConfirmed: true, replyResultFingerprint: task.replyIntent!.resultFingerprint,
+      delivery: { ...task.delivery!, phase: "completed", sequence: request.sequence,
+        contentFingerprint: request.contentFingerprint, pendingContentFingerprint: undefined } });
   }
 
   recordReplyInspection(expected: InboxTask, observation: ReplyObservation): InboxTask {

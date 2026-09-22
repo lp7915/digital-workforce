@@ -1,4 +1,4 @@
-import type { ChannelMessage, ReplyInspectionQuery, ReplyObservation } from "./channel.ts";
+import type { ChannelMessage, ReplyInspectionQuery, ReplyObservation, ReplyRecoveryRequest } from "./channel.ts";
 import { replyContentFingerprint, validReplyFingerprint, validReplyMessageIds } from "./reply-delivery.ts";
 
 export type ReplyInspectionClient = { im: { message?: { get?(payload: unknown): Promise<unknown> } } };
@@ -53,10 +53,10 @@ export async function inspectLarkReply(client: ReplyInspectionClient, appId: str
       const card: unknown = JSON.parse(item.body.content);
       if (!object(card) || card.schema !== "2.0" || !object(card.config) || !object(card.body)
         || !Array.isArray(card.body.elements) || card.body.elements.length !== 1) return unknown("invalid_response");
-      if (card.config.streaming_mode !== false) return unknown("streaming");
       const element = card.body.elements[0];
       if (!object(element) || element.tag !== "markdown" || element.element_id !== query.elementId
         || typeof element.content !== "string") return unknown("invalid_response");
+      if (card.config.streaming_mode !== false) return unknown("streaming");
       const contentFingerprint = replyContentFingerprint(element.content);
       if (contentFingerprint !== query.contentFingerprint) return unknown("content_mismatch");
       return { status: "confirmed", messageId: query.messageId, elementId: query.elementId, contentFingerprint, observedAt: Date.now() };
@@ -70,4 +70,29 @@ export async function inspectLarkReply(client: ReplyInspectionClient, appId: str
     // SDK底层HTTP仍依赖自身超时；这里只限制等待并丢弃迟到结果，不伪称物理取消。
     bounded.removeEventListener("abort", abort);
   }
+}
+
+// 仅补完有已持久化最终正文意图的原卡片；重复恢复复用同一 sequence 和 UUID。
+export async function recoverLarkReply(client: ReplyInspectionClient & {
+  cardkit?: { v1?: { card?: { update?(payload: unknown): Promise<unknown> } } }
+}, appId: string, message: ChannelMessage, request: ReplyRecoveryRequest, signal: AbortSignal): Promise<ReplyObservation> {
+  const unknown: ReplyObservation = { status: "unknown", reason: "unavailable" };
+  const update = client.cardkit?.v1?.card?.update;
+  if (!update || !id(request.cardId) || !Number.isSafeInteger(request.sequence) || request.sequence < 1
+    || typeof request.content !== "string" || replyContentFingerprint(request.content) !== request.contentFingerprint || signal.aborted) return unknown;
+  const query = { mode: "native_card" as const, messageId: request.messageId, elementId: request.elementId, contentFingerprint: request.contentFingerprint };
+  const proof = await inspectLarkReply(client, appId, message, query, signal);
+  if (proof.status === "confirmed") return proof;
+  if (signal.aborted || !["streaming", "content_mismatch"].includes(proof.reason)) return proof;
+  try {
+    const response = await update.call(client.cardkit!.v1!.card, {
+      path: { card_id: request.cardId },
+      data: { sequence: request.sequence, uuid: `recover_${request.cardId}_${request.sequence}`,
+        card: { type: "card_json", data: JSON.stringify({ schema: "2.0", config: { streaming_mode: false },
+          body: { elements: [{ tag: "markdown", element_id: request.elementId, content: request.content }] } }) } }
+    });
+    if (signal.aborted || !object(response) || response.code !== 0) return unknown;
+    return { status: "confirmed", messageId: request.messageId, elementId: request.elementId,
+      contentFingerprint: request.contentFingerprint, observedAt: Date.now() };
+  } catch { return unknown; }
 }

@@ -517,6 +517,7 @@ export class WorkspaceChannels {
       },
       durableQueue: true,
       runtimeRevision: 'workforce-employee-ma-memory-v3',
+      verifyQueuedMessages: true,
       buildSessionRequest: async (message, draft) => {
         const latest = this.get(b.employeeId)!;
         if (latest.configurationHash !== employeeConfigurationHash(this.employee(b.employeeId)))

@@ -13,6 +13,7 @@ export function createEmployeeRuntime(input: {
   sessionConfiguration?: GatewayOptions["sessionConfiguration"];
   buildSessionRequest?: GatewayOptions["buildSessionRequest"];
   ensureBotToken: (allowCreate?: boolean) => Promise<void>;
+  verifyQueuedMessages?: boolean;
   runtimeRevision?: string; durableQueue?: boolean; pdfInputMode?: "file" | "sandbox";
   businessHooks?: Pick<GatewayOptions, "beforeBusinessTurn" | "prepareBusinessInput" | "observeBusinessResult" | "afterBusinessTurn" | "validateBusinessSession" | "handleBusinessCommand">;
 }) {
@@ -24,7 +25,7 @@ export function createEmployeeRuntime(input: {
     reply: source.reply.bind(source), download: source.download.bind(source),
     streamReply: source.streamReply?.bind(source), addReaction: source.addReaction?.bind(source),
     removeReaction: source.removeReaction?.bind(source), inspectReaction: source.inspectReaction?.bind(source),
-    inspectReply: source.inspectReply?.bind(source), loadRecentHistory: source.loadRecentHistory?.bind(source),
+    inspectReply: source.inspectReply?.bind(source), recoverReply: source.recoverReply?.bind(source), loadRecentHistory: source.loadRecentHistory?.bind(source),
     readMessage: source.readMessage?.bind(source),
   };
   const sendAuthorizationCard = async (message: ChannelMessage, url: string): Promise<void> => {
@@ -50,7 +51,8 @@ export function createEmployeeRuntime(input: {
     timeoutMs: config.sessionTimeoutMs, platformAccess: true, downloadAttachment: (resource, message, maxBytes) => channel.download(resource, message, maxBytes),
     streamReply: channel.streamReply, addReaction: channel.addReaction, removeReaction: channel.removeReaction,
     inspectReaction: channel.inspectReaction,
-    inspectReply: channel.inspectReply,
+    inspectReply: channel.inspectReply, recoverReply: channel.recoverReply,
+    verifyQueuedMessages: input.verifyQueuedMessages,
     ensureAuthorization: (message, request) => auth.ensure(message, request),
     cancelAuthorization: message => auth.cancel(message),
     authorizationStatus: message => auth.status(message),

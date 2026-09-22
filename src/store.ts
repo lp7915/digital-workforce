@@ -450,6 +450,14 @@ export class GatewayStore {
     });
   }
 
+  cancelQueuedMessage(expected: InboxTask): InboxTask {
+    return this.messageTransaction(() => {
+      const task = this.inbox.cancelQueued(expected);
+      this.updateMessageEvent(task, "failed", false);
+      return task;
+    });
+  }
+
   finishMessage(id: string, outcome: "completed" | "failed" | "awaiting_authorization"): InboxTask {
     return this.messageTransaction(() => {
       const task = this.inbox.finish(id, outcome);

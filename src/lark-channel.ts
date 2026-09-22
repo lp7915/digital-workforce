@@ -6,7 +6,7 @@ import { withDeliveredFailureNotice } from "./failure-notice.ts";
 import { createFeishuResourceDownloader, MAX_FEISHU_FILE_BYTES, type FeishuResourceClient } from "./feishu.ts";
 import { attachmentSizeError } from "./attachment-limits.ts";
 import { inspectLarkReaction, type ReactionListClient } from "./lark-reactions.ts";
-import { inspectLarkReply } from "./lark-reply-inspection.ts";
+import { inspectLarkReply, recoverLarkReply } from "./lark-reply-inspection.ts";
 import type { ReactionQuery, ReactionObservation, ReplyInspectionQuery, ReplyObservation } from "./channel.ts";
 
 type RawLarkMessage = {
@@ -46,7 +46,7 @@ type FeishuCardStreamClient = FeishuResourceClient & ReactionListClient & {
       delete(payload: unknown): Promise<{ code?: number }> } } };
   cardkit?: { v1?: {
     cardElement?: { content(payload: unknown): Promise<unknown> };
-    card?: { settings(payload: unknown): Promise<unknown> };
+    card?: { settings(payload: unknown): Promise<unknown>; update?(payload: unknown): Promise<unknown> };
   } };
 };
 
@@ -294,6 +294,11 @@ export class LarkChannelAdapter implements ChannelAdapter {
     return inspectLarkReaction(this.channel.rawClient, this.installationId, message, query, signal);
   }
 
+  async recoverReply(message: ChannelMessage, request: import("./channel.ts").ReplyRecoveryRequest, signal: AbortSignal): Promise<import("./channel.ts").ReplyObservation> {
+    if (!this.channel.rawClient) return { status: "unknown", reason: "unsupported" };
+    return recoverLarkReply(this.channel.rawClient, this.installationId, message, request, signal);
+  }
+
   async inspectReply(message: ChannelMessage, query: ReplyInspectionQuery, signal: AbortSignal): Promise<ReplyObservation> {
     if (!this.channel.rawClient) return { status: "unknown", reason: "unsupported" };
     return inspectLarkReply(this.channel.rawClient, this.installationId, message, query, signal);
@@ -465,6 +470,7 @@ export async function readLarkMessage(
     const item = response.data?.items?.find(item => item.message_id === messageId);
     if (!item) return { status: "not_found" };
     if (item.chat_id !== message.conversationId || (item.thread_id && item.thread_id !== message.threadId)) return { status: "unavailable" };
+    if (item.message_id === message.messageId && item.deleted) return { status: "deleted" };
     if (!isEligibleHistoryItem(item, message)) return { status: "unavailable" };
     if (item.deleted) return { status: "deleted" };
     const normalized = normalizeHistoryItem(item, item.thread_id ? "thread" : "chat");

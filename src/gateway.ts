@@ -1,7 +1,7 @@
 import type {
   ArkClient, RunInspection, RunResult, SessionCreateDefaults, SessionCreateRequest, SessionResource, UserAuthorizationRequired
 } from "./ark.ts";
-import type { ChannelHistoryMessage, ChannelMessage, ChannelOutbound, ChannelReadMessage, ChannelInspectReaction, ReactionObservation, ReplyDeliveryObserver, ChannelInspectReply, ReplyObservation } from "./channel.ts";
+import type { ChannelHistoryMessage, ChannelMessage, ChannelOutbound, ChannelReadMessage, ChannelInspectReaction, ReactionObservation, ReplyDeliveryObserver, ChannelInspectReply, ChannelRecoverReply, ReplyObservation } from "./channel.ts";
 import { replyInspectionQuery } from "./reply-delivery.ts";
 import { buildConversationTurn, resolveReplyContext } from "./conversation-context.ts";
 import { assertEnvironmentAppId, configFingerprint, finalizeSessionRequest, mergeSessionRequest, requestEnvironmentId, selectSessionRequest, validateSessionConfiguration, type SessionConfiguration, type SessionScope } from "./session-config.ts";
@@ -405,6 +405,14 @@ export class Gateway {
         if (!matches()) return;
         inspected = this.store.inbox.recordReplyInspection(inspected, proof);
       }
+      if (!inspected.replyConfirmed && this.options.recoverReply) {
+        const request = this.store.inbox.replyRecoveryRequest(inspected, resultToReply(observation.result));
+        if (request && matches()) {
+          const proof = await this.options.recoverReply(inspected.message, request, AbortSignal.timeout(20_000));
+          if (!matches()) return;
+          if (proof.status === "confirmed") inspected = this.store.inbox.confirmRecoveredReply(inspected, request, proof);
+        }
+      }
       if (!inspected.replyConfirmed) return;
       this.store.settleInspectedMessage(inspected);
       this.releaseInboxScope(task);
@@ -556,6 +564,11 @@ export class Gateway {
       try {
         if (this.inboxBlockedScopes.has(task.binding.scope)) return;
         if (resetControl) await this.options.cancelAuthorization!(message);
+        // 长时间排队的消息在派发前核查撤回状态，查询失败不推断为撤回。
+        if (this.options.verifyQueuedMessages && this.options.readMessage && Date.now() - message.createTime > 5000) {
+          const source = await this.options.readMessage(message, message.messageId, AbortSignal.timeout(5000));
+          if (source.status === "deleted") { this.store.cancelQueuedMessage(task); return; }
+        }
         const received = this.store.inbox.claim(task.id, this.inboxBinding(message), resetControl);
         if (!received) {
           this.blockInboxScope(task.binding.scope);
@@ -569,6 +582,10 @@ export class Gateway {
         try { if (claimed) this.finishInboxProcessing(message, true); }
         catch { console.error("持久化执行检查点更新失败，已暂停该会话"); }
         this.blockInboxScope(task.binding.scope);
+        if (this.options.recoverReply && this.store.inbox.findMessage(message)?.interruptedAt === "dispatched") {
+          await this.reconcilePendingMessage(message);
+          if (this.store.inbox.findMessage(message)?.state === "completed") return;
+        }
         try { await this.replyText(message, "任务执行或配置校验未完成。原Session和排队消息已保留；为避免重复操作，已暂停此会话自动投递，请检查运行记录。"); }
         catch { console.warn("发送持久化任务异常提示失败"); }
       } finally { this.inboxScheduled.delete(task.id); }
@@ -1813,6 +1830,7 @@ export type GatewayOptions = {
   removeReaction?: (message: IncomingMessage, reactionId: string) => Promise<void>;
   inspectReaction?: ChannelInspectReaction;
   inspectReply?: ChannelInspectReply;
+  recoverReply?: ChannelRecoverReply;
   beforeCreateSession?: () => Promise<void>;
   beforeDirectTurn?: (message: IncomingMessage) => Promise<void>;
   userCredentialLifecycle?: UserCredentialLifecycle;
@@ -1827,6 +1845,7 @@ export type GatewayOptions = {
   durableQueue?: boolean;
   loadRecentHistory?: (message: IncomingMessage) => Promise<ChannelHistoryMessage[]>;
   readMessage?: ChannelReadMessage;
+  verifyQueuedMessages?: boolean;
   appId?: string;
   sessionConfiguration?: SessionConfiguration;
   sessionConfigurationRevision?: string;

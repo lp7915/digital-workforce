@@ -68,6 +68,8 @@ export type ReplyObservation =
   | { status: "confirmed"; mode?: "native_card"; messageId: string; elementId: string; contentFingerprint: string; observedAt: number }
   | { status: "confirmed"; mode: "text_messages"; messageIds: string[]; contentFingerprint: string; observedAt: number }
   | { status: "unknown"; reason: "unsupported" | "unavailable" | "invalid_response" | "identity_mismatch" | "content_mismatch" | "streaming" | "cancelled" };
+export type ReplyRecoveryRequest = { cardId: string; messageId: string; elementId: string; sequence: number; content: string; contentFingerprint: string };
+export type ChannelRecoverReply = (message: ChannelMessage, request: ReplyRecoveryRequest, signal: AbortSignal) => Promise<ReplyObservation>;
 export type ChannelInspectReply = (message: ChannelMessage, query: ReplyInspectionQuery, signal: AbortSignal) => Promise<ReplyObservation>;
 
 export type ChannelOutbound =
@@ -97,6 +99,7 @@ export interface ChannelAdapter {
   removeReaction?(message: ChannelMessage, reactionId: string): Promise<void>;
   inspectReaction?: ChannelInspectReaction;
   inspectReply?: ChannelInspectReply;
+  recoverReply?: ChannelRecoverReply;
   loadRecentHistory?(message: ChannelMessage): Promise<ChannelHistoryMessage[]>;
   readMessage?: ChannelReadMessage;
   download(resource: ChannelResource, message: ChannelMessage, maxBytes?: number): Promise<{ bytes: Uint8Array; mimeType: string }>;
