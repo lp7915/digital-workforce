@@ -79,21 +79,3 @@
 **Status**: In Progress
 
 人物与事件分流已实现，完整 1828 项回归、构建和格式检查通过。真实 MA 验收首次创建临时 Store 返回 HTTP 401，未创建资源；待用户在方舟配置恢复有效 API Key 后补做云端双目标写回验证。
-
-## Stage V1: 最终产物 Validator
-**Goal**: 定义并执行本地产物契约，失败输出明确错误。
-**Success Criteria**: 跨批次、缺失引用、HTML 注入及误报发布等 9 个用例通过。
-**Tests**: Python 9 项用例通过，已纳入 Node 测试入口。
-**Status**: Complete
-
-## Stage V2: 报告技能与初始化升级
-**Goal**: Skill 要求脚本验证和证据复核，初始化升级旧包。
-**Success Criteria**: 旧资源升级一次，回读失败不重复上传。
-**Tests**: 完整回归 1859 项通过；新增升级回执专项通过；构建与修改文件格式检查通过。
-**Status**: Complete
-
-## Stage V3: MA 部署
-**Goal**: 上传新版报告 Skill 并更新本地员工引用。
-**Success Criteria**: MA 回读新版资源成功。
-**Tests**: 尚未执行；自动审批拒绝源码外发，等待用户明确确认上传目的地及授权。
-**Status**: Not Started
