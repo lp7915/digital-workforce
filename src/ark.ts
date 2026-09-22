@@ -874,6 +874,11 @@ export class ArkClient {
     throw signal.reason || new Error("Session 事件轮询已取消");
   }
 
+  // 只读诊断：沿既有事件顺序取末尾，完整读取失败时不把第一页冒充最近事件。
+  async diagnosticEvents(sessionId: string, signal?: AbortSignal): Promise<ArkEvent[]> {
+    return (await this.readSessionEvents(sessionId, signal, undefined, true)).events.slice(-8);
+  }
+
   private async listSessionEvents(sessionId: string, signal?: AbortSignal): Promise<ArkEvent[]> {
     return (await this.readSessionEvents(sessionId, signal)).events;
   }

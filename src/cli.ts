@@ -171,6 +171,7 @@ async function run(): Promise<void> {
   };
   const channel = await createFeishuRuntime(config.feishuAppId, config.feishuAppSecret, (message, id) => store.recordOutgoing(message, id));
   const gateway = new Gateway(store, ark, (message, outbound, observer) => channel.reply(message, outbound, observer), {
+    reportDiagnostics: true,
     appId: config.feishuAppId, sessionConfiguration,
     pdfInputMode: pdfInputMode(process.env.ARKAGENT_PDF_INPUT_MODE),
     agentId: config.arkAgentId,

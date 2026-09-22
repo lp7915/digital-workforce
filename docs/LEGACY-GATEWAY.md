@@ -122,3 +122,13 @@ tsc --noEmit --allowImportingTsExtensions --module nodenext --target esnext --sk
 - `outputs/`：用户交付说明和验收截图。
 
 包标记为 `private: true`。未执行 GitHub/npm 发布、云部署或任何生产迁移。
+
+### 群内异常诊断
+
+工作台、员工运行入口和 CLI 已显式开启 `reportDiagnostics: true`。发生任务执行失败、任务调度/配置校验失败、原运行恢复检查失败，以及主任务继续执行但历史附件处理失败时，会通过原消息的 Channel 回复诊断摘要。
+
+摘要包含原消息 ID、目标 Session ID、本地错误类型/可用 HTTP 状态码/请求 ID、同群同话题的近期附件失败阶段，以及该 Session 最近最多 8 条 events 的元数据和错误字段。events 查询最多等待 5 秒；未创建 Session、适配器不支持或查询失败都明确标注。查询只读，不创建 Session、不重发任务、不解除暂停。
+
+不发送整个进程日志：它可能混有其他群聊和凭证。错误文本脱敏，事件正文、工具参数与返回内容、请求配置和请求头不转发。相同消息相同阶段在当前进程内去重（最多记住 2000 项）；重启后可能重新报告。发送失败仅记本地日志，不递归发送异常。
+
+原有嵌入式 Gateway 调用方若需相同能力，显式传入 `reportDiagnostics: true`。已经在其他机器部署的机器人需要升级并重启其网关；本机工作台更新不会改变外部 `topic-V6` 的运行代码。

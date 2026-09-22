@@ -15,6 +15,7 @@ import type { InboxBinding, InboxTask, InboxPreparation } from "./message-inbox.
 import type { SessionCreationRecord } from "./session-creation-state.ts";
 import type { AttachmentStage, AttachmentStageDetails } from "./attachment-trace.ts";
 import { ArkHttpError } from "./ark.ts";
+import { gatewayDiagnostic, localFailure } from "./gateway-diagnostics.ts";
 import { ArkRunError, failureDiagnostic } from "./ark-errors.ts";
 import { isFailureNoticeDelivered } from "./failure-notice.ts";
 import { PreparationRunner, PreparationCheckpointError } from "./preparation-runner.ts";
@@ -100,9 +101,40 @@ export class Gateway {
   private inboxRecoveryBatches = new Map<string, Promise<void>>();
   private reactionCleanups = new Map<string, Promise<void>>();
   private configurationWarnings = new Set<string>();
+  private diagnosticNotices = new Set<string>();
+  private diagnosticNotes = new Map<string, string[]>();
+
+  private diagnosticKey(message: IncomingMessage): string {
+    return JSON.stringify([message.channelType, message.installationId, message.tenantId, message.conversationId, message.messageId]);
+  }
+
+  private async reportGatewayFailure(message: IncomingMessage, stage: string, error: unknown, sessionId?: string): Promise<void> {
+    if (!this.options.reportDiagnostics) return;
+    const key = this.diagnosticKey(message), noticeKey = `${key}:${stage}`;
+    if (this.diagnosticNotices.has(noticeKey)) return;
+    this.diagnosticNotices.add(noticeKey);
+    if (this.diagnosticNotices.size > 2000) this.diagnosticNotices.delete(this.diagnosticNotices.values().next().value!);
+    try {
+      const logs = [...(this.diagnosticNotes.get(key) || [])];
+      try {
+        const traces = this.store.attachmentTrace.listForInstallation(message.channelType, message.installationId).items
+          .filter(item => item.tenantId === message.tenantId && item.conversationId === message.conversationId
+            && item.threadId === message.threadId && item.startedAt >= message.createTime && item.status !== "succeeded"
+            && (!item.sessionId || item.sessionId === sessionId)).slice(0, 5);
+        logs.push(...traces.map(item => `附件 ${item.stage} / ${item.status} · 消息 ${item.messageId} · ${JSON.stringify(item.failure || {})}`));
+      } catch (traceError) { logs.push(`读取本地附件记录失败：${localFailure(traceError)}`); }
+      const text = await gatewayDiagnostic({ stage, messageId: message.messageId, sessionId, error, logs,
+        readEvents: this.ark.diagnosticEvents ? (id, signal) => this.ark.diagnosticEvents!(id, signal) : undefined });
+      console.warn(text);
+      await this.replyText(message, text);
+    } catch (diagnosticError) {
+      // 诊断失败不能递归发送或改变业务任务状态。
+      console.warn("发送 Gateway 诊断失败：", localFailure(diagnosticError));
+    }
+  }
   private store: GatewayStore;
   private ark: Pick<ArkClient, "createSession" | "run"> & Partial<Pick<
-    ArkClient, "buildSessionCreateRequest" | "uploadFile" | "waitForFileActive" | "inspectFileUpload" | "addSessionFile" | "addSessionResource" | "inspectFileMount" | "getSessionStats" | "inspectSessionReadiness" | "inspectSessionCreation" | "inspectCompaction" | "inspectRun"
+    ArkClient, "buildSessionCreateRequest" | "uploadFile" | "waitForFileActive" | "inspectFileUpload" | "addSessionFile" | "addSessionResource" | "inspectFileMount" | "getSessionStats" | "inspectSessionReadiness" | "inspectSessionCreation" | "inspectCompaction" | "inspectRun" | "diagnosticEvents"
   >>;
   private reply: Reply;
   private options: GatewayOptions;
@@ -110,7 +142,7 @@ export class Gateway {
   constructor(
     store: GatewayStore,
     ark: Pick<ArkClient, "createSession" | "run"> & Partial<Pick<
-      ArkClient, "buildSessionCreateRequest" | "uploadFile" | "waitForFileActive" | "inspectFileUpload" | "addSessionFile" | "addSessionResource" | "inspectFileMount" | "getSessionStats" | "inspectSessionReadiness" | "inspectSessionCreation" | "inspectCompaction" | "inspectRun"
+      ArkClient, "buildSessionCreateRequest" | "uploadFile" | "waitForFileActive" | "inspectFileUpload" | "addSessionFile" | "addSessionResource" | "inspectFileMount" | "getSessionStats" | "inspectSessionReadiness" | "inspectSessionCreation" | "inspectCompaction" | "inspectRun" | "diagnosticEvents"
     >>,
     reply: Reply,
     options: GatewayOptions
@@ -416,9 +448,10 @@ export class Gateway {
       if (!inspected.replyConfirmed) return;
       this.store.settleInspectedMessage(inspected);
       this.releaseInboxScope(task);
-    }).catch(() => {
+    }).catch(async (error) => {
       this.blockInboxScope(task.binding.scope);
       console.warn("原运行核查或检查点保存失败，未重发任务或解除暂停");
+      await this.reportGatewayFailure(message, "原运行核查或检查点保存", error, task.sessionId);
     }).finally(() => this.inboxReconciliations.delete(task.id));
     this.inboxReconciliations.set(task.id, operation);
     return operation;
@@ -578,13 +611,18 @@ export class Gateway {
         claimed = true;
         await this.withReaction(message, hasReaction => this.process(message, key, undefined, hasReaction, undefined, task.id));
         this.finishInboxProcessing(message);
-      } catch {
+      } catch (error) {
         try { if (claimed) this.finishInboxProcessing(message, true); }
         catch { console.error("持久化执行检查点更新失败，已暂停该会话"); }
         this.blockInboxScope(task.binding.scope);
         if (this.options.recoverReply && this.store.inbox.findMessage(message)?.interruptedAt === "dispatched") {
           await this.reconcilePendingMessage(message);
           if (this.store.inbox.findMessage(message)?.state === "completed") return;
+        }
+        if (!this.diagnosticNotices.has(`${this.diagnosticKey(message)}:任务执行`)) {
+          let sessionId: string | undefined;
+          try { sessionId = this.store.inbox.findMessage(message)?.sessionId || this.store.getSession(key); } catch {}
+          await this.reportGatewayFailure(message, "任务调度或配置校验（会话已暂停）", error, sessionId);
         }
         try { await this.replyText(message, "任务执行或配置校验未完成。原Session和排队消息已保留；为避免重复操作，已暂停此会话自动投递，请检查运行记录。"); }
         catch { console.warn("发送持久化任务异常提示失败"); }
@@ -1297,6 +1335,8 @@ export class Gateway {
         await this.handleAuthorizationRequired(message, sessionId, startedAt, result.authorizationRequired, result.evidence, inboxId);
         return;
       }
+      if (this.diagnosticNotes.has(this.diagnosticKey(message)))
+        await this.reportGatewayFailure(message, "历史附件处理（主任务已返回）", new Error("部分历史附件未能读取，详见阶段记录"), sessionId);
       const finalReply = withNotices(resultToReply(result));
       if (progressTimer) clearTimeout(progressTimer);
       await progressReply;
@@ -1314,6 +1354,7 @@ export class Gateway {
         ...(result.fileObservation ? { fileObservation: result.fileObservation } : {})
       });
     } catch (error) {
+      await this.reportGatewayFailure(message, "任务执行", error, sessionId);
       this.store.addAuditLog({
         channelType: message.channelType, installationId: message.installationId,
         tenantKey: message.tenantId, openId: message.senderId, chatId: message.conversationId, messageId: message.messageId,
@@ -1325,6 +1366,7 @@ export class Gateway {
       });
       throw error;
     } finally {
+      this.diagnosticNotes.delete(this.diagnosticKey(message));
       if (progressTimer) clearTimeout(progressTimer);
     }
   }
@@ -1645,6 +1687,10 @@ export class Gateway {
         if (error instanceof PreparationCheckpointError) throw error;
         const reason = attachmentError(error);
         notices.push(`附件「${name}」未能读取：${reason}`);
+        const diagnosticKey = this.diagnosticKey(trigger);
+        const notes = this.diagnosticNotes.get(diagnosticKey) || [];
+        notes.push(`历史附件消息 ${item.messageId}：${localFailure(error)}`);
+        this.diagnosticNotes.set(diagnosticKey, notes.slice(-8));
         console.warn(`挂载历史群聊附件 ${name} 失败：`, reason);
         updated.set(item.messageId, { ...current, attachmentPending: true, text: `${current.text}\n[该附件未能挂载：${reason.slice(0, 160)}]` });
       }
@@ -1803,6 +1849,8 @@ export function shouldHandleMessage(message: IncomingMessage): boolean {
 }
 
 export type GatewayOptions = {
+  // 生产入口显式启用群内诊断；嵌入式 Gateway 保持既有回复契约。
+  reportDiagnostics?: boolean;
   // 可选业务层钩子；业务存储和权限不暴露为模型工具。
   handleBusinessCommand?: (message: IncomingMessage) => Promise<string | undefined>;
   validateBusinessSession?: (message: IncomingMessage, sessionId: string) => Promise<void>;
