@@ -16,7 +16,7 @@ class ValidatorTests(unittest.TestCase):
         self.root = Path(self.directory.name)
         self.context = dict(run_id='run-1', project_id='project-1', period={'start': '2026-09-01T00:00:00+08:00', 'end': '2026-09-08T00:00:00+08:00'}, input_sha256='a' * 64)
         self.put('events.json', dict(**self.context, events=[{'event_id': 'event-1', 'source_urls': ['https://example.com/source']}]))
-        self.put('quality.json', {'input_sha256': 'a' * 64, 'period': self.context['period'], 'valid_count': 1})
+        self.put('quality.json', {'input_sha256': 'a' * 64, 'period_start': self.context['period']['start'], 'period_end': self.context['period']['end'], 'valid_count': 1})
         self.put('review-items.json', dict(**self.context, items=[]))
         body = '\n'.join(validator.SECTIONS) + '\nevent-1 https://example.com/source'
         (self.root / 'report.md').write_text(body)

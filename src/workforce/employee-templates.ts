@@ -143,7 +143,7 @@ export const employeeTemplates = [
     skills: SOCIAL_SKILL_NAMES.map((name) => ({
       name,
       tags: ['social-trends'],
-      ...(name === 'social-trend-report' ? { revision: 'validator-v1' } : {}),
+      ...(name === 'social-trend-report' ? { revision: 'validator-v2' } : {}),
     })),
     dependencies: socialDependencies,
     create: createSocialEmployee,

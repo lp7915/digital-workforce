@@ -66,3 +66,5 @@
 报告包修订为 `validator-v1`，初始化用独立 MA 资源回执升级引用，保留旧资源；重复初始化复用修订后的资源。已接入 MA Agent 的员工仍需按现有 MA 配置同步流程更新远端 Agent。
 
 2026-09-22：经授权已将包含 Validator 的报告包上传至当前配置的 MA 账户，初始化复用已有社媒员工并更新报告技能引用；通过 MA 技能读取接口回读核验成功。尚未以真实业务数据完成整份周报的端到端验收。
+
+2026-09-22 本地产物验收：用 9 条合成记录执行真实 prepare.py，得到 6 条有效记录和 3 类排除项；生成 3 个事件的 Markdown/HTML 报告，Validator 返回 draft_validated。文件篡改、跨批次、脚本注入、虚报发布 4 组故障均被拦截。验收修复了 quality.json 周期字段契约不一致的问题，修订 validator-v2 已上传 MA 并更新员工引用。产物见 outputs/social-trends-acceptance/；本次未验收真实社媒数据、MA Agent 对话执行或飞书发布。

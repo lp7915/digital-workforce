@@ -102,7 +102,10 @@ def validate(root):
     for name in ('events.json', 'review-items.json', 'quality.json'):
         fields = ('period', 'input_sha256') if name == 'quality.json' else ('run_id', 'project_id', 'period', 'input_sha256')
         for field in fields:
-            if contents[name].get(field) != manifest.get(field) or field not in contents[name]:
+            actual = contents[name].get(field)
+            if name == 'quality.json' and field == 'period':
+                actual = {'start': contents[name].get('period_start'), 'end': contents[name].get('period_end')}
+            if actual != manifest.get(field):
                 fail('CONTEXT_MISMATCH', name, field + ' 与本轮清单不一致')
     events = contents['events.json'].get('events')
     if not isinstance(events, list) or not events:
