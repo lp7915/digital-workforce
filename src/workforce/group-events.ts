@@ -32,3 +32,22 @@ export function syncBotGroup(
   group.source = 'feishu';
   workspace.save(current.state, current.revision);
 }
+
+// 仅用于已通过飞书 Channel 验证的实时消息，不接受客户端提交的群关系。
+export function syncMessageGroup(
+  workspace: LocalWorkspace,
+  employeeId: string,
+  message: { conversationType: string; conversationId: string; createTime: number },
+) {
+  if (message.conversationType !== 'group' || !Number.isFinite(message.createTime) || message.createTime <= 0)
+    return;
+  const state = workspace.read().state;
+  if (!state.employees.some((e: any) => e.id === employeeId && e.enabled)) return;
+  const group = state.groups.find((g: any) => g.chatId === message.conversationId);
+  if (group?.employeeIds.includes(employeeId)) return;
+  syncBotGroup(workspace, employeeId, {
+    chatId: message.conversationId,
+    joined: true,
+    time: message.createTime,
+  });
+}

@@ -24,7 +24,7 @@ import { DomainError } from './domain.ts';
 import type { LocalWorkspace } from './workspace.ts';
 import { createLarkChannel } from '@larksuite/channel';
 import { registerGroupEvents } from './group-event-adapter.ts';
-import { syncBotGroup } from './group-events.ts';
+import { syncBotGroup, syncMessageGroup } from './group-events.ts';
 
 type Binding = {
   employeeId: string;
@@ -585,6 +585,7 @@ export class WorkspaceChannels {
           gateway.recoverPendingMessages('lark', b.appId!);
         },
         (message) => {
+          syncMessageGroup(this.workspace, b.employeeId, message);
           if (!allowed(message)) return;
           if (gateway.accept(message)) {
             const current = this.get(b.employeeId)!;
