@@ -389,3 +389,142 @@ test('切换 MA 环境后旧 Session 必须 /new，不继续沿用旧环境', as
     f.workspace.close();
   }
 });
+
+test('人物与事情写入不同 MA Store，人物按真实身份去重且不能冒用来源', async () => {
+  const f = fixture();
+  let organizer: MemoryOrganizer | undefined;
+  try {
+    await f.memories.migrate('employees', 'e');
+    await f.memories.migrate('projects', 'p');
+    organizer = new MemoryOrganizer(f.memories, new SessionMemory(f.workspace, f.api), () => ({
+      agentId: 'a',
+      environmentId: 'env',
+    }));
+    const job: any = {
+      id: 'split',
+      requestId: 'split-request',
+      employeeId: 'e',
+      projectId: 'p',
+      storeId: 'ps',
+      employeeStoreId: 'es',
+      actorId: 'local-admin',
+      sources: [{ id: 'sesn-person', employeeId: 'e', projectId: 'p', chatId: 'oc_group', direct: false }],
+      readSessionIds: [],
+      peopleEvidence: [],
+      writes: [],
+    };
+    f.sessions.set('sesn-person', {
+      events: [
+        {
+          id: 'person-event',
+          type: 'user.message',
+          content: [
+            {
+              type: 'text',
+              text: '<current_actor open_id="ou_person" />\n\n<current_message message_id="m" chat_id="oc_group" />\n\n<current_request>我是小王，负责内容，偏好先看结论。确认项目10月15日发布。</current_request>',
+            },
+          ],
+        },
+      ],
+    });
+    const source = await organizer.execute(job, {
+      name: 'read_source_session',
+      input: { sessionId: 'sesn-person' },
+    });
+    assert.equal(source.interlocutors[0].openId, 'ou_person');
+    const input = {
+      openId: 'ou_person',
+      name: '小王',
+      role: '内容负责人',
+      traits: ['偏好先看结论'],
+      sourceSessionIds: ['sesn-person'],
+      sourceEventIds: ['person-event'],
+    };
+    const person = await organizer.execute(job, { id: 'write-person', name: 'write_person_memory', input });
+    assert.equal(person.category, 'people');
+    assert.equal(person.storeId, 'es');
+    assert.match((await f.memories.detail('employees', 'e', 'es', person.id)).content, /小王/);
+    assert.ok(
+      !(await f.memories.list('projects', 'p', 'ps')).entries.some((e) => e.path.startsWith('people/')),
+    );
+    const repeated = await organizer.execute(job, { id: 'write-person', name: 'write_person_memory', input });
+    assert.equal(repeated.id, person.id);
+    assert.equal(job.writes.length, 1);
+    await assert.rejects(
+      organizer.execute(job, {
+        id: 'fake',
+        name: 'write_person_memory',
+        input: { ...input, openId: 'ou_mentioned' },
+      }),
+      /真实群发言者/,
+    );
+    await assert.rejects(
+      organizer.execute(job, {
+        id: 'wrong-store',
+        name: 'write_project_memory',
+        input: { path: 'people/ou_person.md', content: '人物画像', sourceSessionIds: ['sesn-person'] },
+      }),
+      /员工 Memory/,
+    );
+    const event = await organizer.execute(job, {
+      id: 'write-event',
+      name: 'write_project_memory',
+      input: {
+        path: 'decisions/launch.md',
+        content: '项目于10月15日发布',
+        sourceSessionIds: ['sesn-person'],
+      },
+    });
+    assert.equal(event.category, 'events');
+    assert.equal(event.storeId, 'ps');
+    assert.match((await f.memories.detail('projects', 'p', 'ps', event.id)).content, /10月15日/);
+    const updated = await organizer.execute(job, {
+      id: 'update-person',
+      name: 'write_person_memory',
+      input: { ...input, id: person.id, sha: person.sha, traits: ['偏好先看结论', '要求标注来源'] },
+    });
+    assert.equal(updated.path, 'people/ou_person.md');
+    assert.equal(
+      (await f.memories.list('employees', 'e', 'es')).entries.filter((e) => e.path.startsWith('people/'))
+        .length,
+      1,
+    );
+  } finally {
+    await organizer?.stop();
+    f.workspace.close();
+  }
+});
+
+test('已有整理 Agent 原位升级为七个分流工具，升级回包不确定后可识别远端配置', async () => {
+  const f = fixture();
+  let organizer: MemoryOrganizer | undefined;
+  try {
+    const calls: any[] = [];
+    let remote: any = { id: 'agent-old', version: '1', metadata: {} };
+    f.memories.api = new MaMemoryApi({ apiKey: () => 'key' }, async (_url: any, init: any) => {
+      if (init.method === 'POST') {
+        const body = JSON.parse(init.body);
+        calls.push(body);
+        remote = { id: 'agent-old', version: '2', ...body };
+      }
+      return new Response(JSON.stringify(remote));
+    });
+    organizer = new MemoryOrganizer(f.memories, new SessionMemory(f.workspace, f.api), () => ({
+      agentId: 'a',
+      environmentId: 'env',
+    }));
+    f.workspace.db
+      .prepare('INSERT INTO workspace_memory_agent (id,remote_id,token,config_version) VALUES (1,?,?,1)')
+      .run('agent-old', 'token');
+    assert.equal(await (organizer as any).ensureAgent(), 'agent-old');
+    assert.equal(calls[0].version, 1);
+    assert.equal(calls[0].tools.length, 7);
+    assert.ok(calls[0].tools.some((t: any) => t.name === 'write_person_memory'));
+    f.workspace.db.prepare('UPDATE workspace_memory_agent SET config_version=1 WHERE id=1').run();
+    await (organizer as any).ensureAgent();
+    assert.equal(calls.length, 1);
+  } finally {
+    await organizer?.stop();
+    f.workspace.close();
+  }
+});
