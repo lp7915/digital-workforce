@@ -4,11 +4,17 @@ import type { LocalWorkspace } from './workspace.ts';
 import { PLATFORM_SKILLS } from './skill-catalog.ts';
 
 export class MaSkills {
-  private config: Pick<MaConfiguration, 'apiKey'>;
+  private config: Pick<MaConfiguration, 'apiKey'> & Partial<Pick<MaConfiguration, 'platformSkills'>>;
   private fetcher: typeof fetch;
-  constructor(config: Pick<MaConfiguration, 'apiKey'>, fetcher = fetch) {
+  constructor(
+    config: Pick<MaConfiguration, 'apiKey'> & Partial<Pick<MaConfiguration, 'platformSkills'>>,
+    fetcher = fetch,
+  ) {
     this.config = config;
     this.fetcher = fetcher;
+  }
+  private catalog() {
+    return this.config.platformSkills?.() || PLATFORM_SKILLS;
   }
   private async get(path: string) {
     const key = this.config.apiKey();
@@ -55,7 +61,7 @@ export class MaSkills {
       id: item.id,
       name: item.name,
       description: typeof item.description === 'string' ? item.description : '',
-      tags: [...(PLATFORM_SKILLS.find((entry) => entry.id === item.id)?.tags ?? [])],
+      tags: [...(this.catalog().find((entry) => entry.id === item.id)?.tags ?? [])],
       version: String(item.latest_version),
       source: 'ma',
       type: 'custom',
@@ -63,7 +69,7 @@ export class MaSkills {
     };
   }
   async list() {
-    const skills = await Promise.all(PLATFORM_SKILLS.map((entry) => this.detail(entry.id)));
+    const skills = await Promise.all(this.catalog().map((entry) => this.detail(entry.id)));
     return {
       skills,
       hasMore: false,
@@ -78,7 +84,7 @@ export class MaSkills {
     return skill;
   }
   async bind(workspace: LocalWorkspace, employeeId: string, skillId: string) {
-    if (!PLATFORM_SKILLS.some((entry) => entry.id === skillId))
+    if (!this.catalog().some((entry) => entry.id === skillId))
       throw new DomainError('该技能不在本地技能清单中');
     if (!workspace.read().state.employees.some((e: any) => e.id === employeeId))
       throw new DomainError('员工不存在', 404);

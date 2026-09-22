@@ -1,3 +1,4 @@
+import { MaInitializer } from './ma-initializer.ts';
 import { MemoryScheduler } from './memory-scheduler.ts';
 import { MaEnvironments, RECOMMENDED_ENVIRONMENT_NAME } from './ma-environments.ts';
 import { SessionMemory } from './session-memory.ts';
@@ -68,7 +69,9 @@ if (process.env.WORKFORCE_EXTRACTOR_CONFIG) {
 }
 const port = Number(process.env.WORKFORCE_PORT || '8790');
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('WORKFORCE_PORT 无效');
+const initializer = new MaInitializer(workspace, maConfig, channels, memories);
 const { server, url } = await createWeb(w, {
+  initializer,
   port,
   extractorMode,
   workspace,

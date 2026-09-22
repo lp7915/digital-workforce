@@ -28,6 +28,24 @@ export class MaConfiguration {
     if (this.env.WORKFORCE_MA_CONFIG) return this.fileKey(resolve(this.env.WORKFORCE_MA_CONFIG));
     return this.env.WORKFORCE_MA_API_KEY?.trim() || undefined;
   }
+  platformSkills(): Array<{ id: string; tags: string[]; name?: string }> | undefined {
+    const path = resolve(this.directory, 'ma-skill-catalog.json');
+    if (!existsSync(path)) return undefined;
+    const records = JSON.parse(readFileSync(path, 'utf8'));
+    const key = this.apiKey();
+    return key ? records[createHash('sha256').update(key).digest('hex')] : undefined;
+  }
+  savePlatformSkills(skills: Array<{ id: string; tags: string[]; name?: string }>) {
+    const key = this.apiKey();
+    if (!key) throw new DomainError('请先配置方舟 API Key');
+    const path = resolve(this.directory, 'ma-skill-catalog.json');
+    const records = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {};
+    records[createHash('sha256').update(key).digest('hex')] = skills;
+    mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+    const temporary = path + '.' + randomUUID();
+    writeFileSync(temporary, JSON.stringify(records), { mode: 0o600 });
+    renameSync(temporary, path);
+  }
   status() {
     const source = existsSync(this.path)
       ? '页面配置'

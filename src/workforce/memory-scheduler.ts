@@ -70,6 +70,7 @@ export class MemoryScheduler {
     this.timer = undefined;
   }
   tick() {
+    if (this.workspace.tasks().some((t) => t.type === 'ma_init' && t.status === 'running')) return;
     const schedule = this.load()!,
       current = this.now();
     if ((!schedule.batch || schedule.batch.finished) && current >= schedule.nextAt) {

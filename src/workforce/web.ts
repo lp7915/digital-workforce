@@ -1,3 +1,4 @@
+import type { MaInitializer } from './ma-initializer.ts';
 import type { MaEnvironments } from './ma-environments.ts';
 import type { MemoryOrganizer } from './memory-organizer.ts';
 import type { WorkspaceMemories } from './workspace-memories.ts';
@@ -59,6 +60,7 @@ export async function createWeb(
   w: Workforce,
   options: {
     port: number;
+    initializer?: MaInitializer;
     publicDir?: string;
     extractorMode?: string;
     workspace?: LocalWorkspace;
@@ -91,6 +93,16 @@ export async function createWeb(
       if (options.workspace && path.startsWith('/api/workspace')) {
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new DomainError('拒绝跨站请求', 403);
         const workspace = options.workspace;
+        if (path === '/api/workspace/ma-config/initialize' && options.initializer) {
+          if (method === 'GET') return json(res, options.initializer.status());
+          if (method === 'POST') {
+            await body(req);
+            return json(res, options.initializer.start(), 202);
+          }
+        }
+        if (options.initializer?.running && method !== 'GET')
+          throw new DomainError('MA 资源初始化进行中，请稍后修改配置', 409);
+
         const environmentRoute = path.match(/^\/api\/workspace\/employees\/([^/]+)\/environment$/);
         if (environmentRoute && options.environments) {
           const id = decodeURIComponent(environmentRoute[1]);

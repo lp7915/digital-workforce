@@ -571,6 +571,38 @@ async function refreshMaStatus() {
     paintMaStatus(null);
   }
 }
+let maInitializationTimer;
+async function initializeMaResources() {
+  const input = $('#ma-api-key');
+  if (input?.value.trim()) return toast('请先保存并验证新密钥，再初始化资源');
+  const host = $('#ma-initialization-status');
+  const paint = (state) => {
+    if (!host?.isConnected) return;
+    const task = state.task;
+    host.innerHTML = task
+      ? `<p><b>${esc(task.progress)}</b></p>${(task.steps || []).map((step) => `<p class="muted">${esc(step)}</p>`).join('')}${(task.warnings || []).map((warning) => `<p>${esc(warning)}</p>`).join('')}`
+      : '';
+    if (state.running) maInitializationTimer = setTimeout(poll, 2000);
+    else
+      void request('')
+        .then(acceptServer)
+        .catch(() => {});
+  };
+  const poll = async () => {
+    if (!host?.isConnected) return;
+    try {
+      paint(await request('/ma-config/initialize'));
+    } catch (error) {
+      host.textContent = error.message;
+    }
+  };
+  clearTimeout(maInitializationTimer);
+  try {
+    paint(await request('/ma-config/initialize', 'POST', {}));
+  } catch (error) {
+    if (host) host.textContent = error.message;
+  }
+}
 async function openMaConfig() {
   try {
     const state = await request('/ma-config');
@@ -582,8 +614,8 @@ async function openMaConfig() {
       <form id="ma-config-form" autocomplete="off"><label for="ma-api-key">方舟 API Key</label>
       <input id="ma-api-key" type="password" name="apiKey" autocomplete="new-password" maxlength="4096" required placeholder="${state.configured ? '输入新密钥以替换；留空不修改' : '输入具备 MA 权限的 API Key'}" />
       <p id="ma-verification-message" class="muted" role="status">${esc(state.message)}</p>
-      <p class="muted">已运行的 Channel 更换密钥后需重启本机服务；待接入员工可直接继续接入。</p>
-      <div class="actions form-actions">${button('取消', 'close')}${state.configured ? button('重新验证已保存密钥', 'verify-ma') : ''}<button class="primary" type="submit">保存并验证</button></div></form>`,
+      <p class="muted">初始化会核验并补齐 ADA 技能、环境、记忆库、Agent 与 Bot 凭证。已存在的资源会复用；已删除且无备份的记忆只能重建空库。初始化会暂停飞书 Channel，完成后需重启本机服务并发送 /new。</p><div id="ma-initialization-status" role="status"></div>
+      <div class="actions form-actions">${button('取消', 'close')}${state.configured ? button('重新验证已保存密钥', 'verify-ma') + button('一键初始化 MA 资源', 'initialize-ma') : ''}<button class="primary" type="submit">保存并验证</button></div></form>`,
     );
   } catch (error) {
     toast(error.message);
@@ -1399,6 +1431,7 @@ document.addEventListener('click', async (event) => {
   }
   if (action === 'reconnect') return connectWorkspace();
   if (action === 'ma-config') return openMaConfig();
+  if (action === 'initialize-ma') return initializeMaResources();
   if (action === 'retry-feishu') return openFeishu(id, true, true);
   if (action === 'upgrade-feishu') return openFeishu(id, true, false, true);
   if (action === 'resume-feishu') return openFeishu(id, true);

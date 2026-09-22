@@ -201,6 +201,20 @@ export class MemoryOrganizer {
         )
     );
   }
+  async initializeResource() {
+    const row = this.memories.workspace.db
+      .prepare('SELECT remote_id FROM workspace_memory_agent WHERE id=1')
+      .get();
+    if (row?.remote_id) {
+      try {
+        await this.memories.api.call(`/agents/${encodeURIComponent(String(row.remote_id))}`);
+      } catch (error) {
+        if (!(error instanceof DomainError && error.status === 404)) throw error;
+        this.memories.workspace.db.prepare('DELETE FROM workspace_memory_agent WHERE id=1').run();
+      }
+    }
+    return this.ensureAgent();
+  }
   private ensureAgent() {
     if (!this.preparingAgent)
       this.preparingAgent = this.createAgent().finally(() => {

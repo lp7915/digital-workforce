@@ -1,10 +1,11 @@
+import { DatabaseSync } from 'node:sqlite';
 import type { MaEnvironments } from './ma-environments.ts';
 import type { WorkspaceMemories } from './workspace-memories.ts';
 import type { MemoryOrganizer } from './memory-organizer.ts';
 import { SessionMemory } from './session-memory.ts';
 import { MaMemoryApi } from './ma-memory.ts';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync, existsSync } from 'node:fs';
 import { MaConfiguration } from './ma-config.ts';
 import { MaSkills } from './ma-skills.ts';
 import { missingConversationScopes } from './channel-permissions.ts';
@@ -606,6 +607,37 @@ export class WorkspaceChannels {
       store.close();
       throw error;
     }
+  }
+  resourceBindings() {
+    return this.all();
+  }
+  saveResourceBinding(binding: Binding) {
+    this.put(binding);
+  }
+  async pauseForInitialization() {
+    if (this.active.size || this.synchronizing.size)
+      throw new DomainError('员工接入或同步进行中，请稍后初始化', 409);
+    for (const binding of this.all()) {
+      if (!binding.appId) continue;
+      const path = resolve(
+        this.options.dataDir,
+        'channels',
+        createHash('sha256').update(binding.appId).digest('hex') + '.db',
+      );
+      if (!existsSync(path)) continue;
+      const db = new DatabaseSync(path, { readOnly: true });
+      try {
+        if (
+          db
+            .prepare("SELECT 1 FROM gateway_message_inbox WHERE state IN ('preparing','dispatched') LIMIT 1")
+            .get()
+        )
+          throw new DomainError('仍有对话正在执行，请结束后初始化', 409);
+      } finally {
+        db.close();
+      }
+    }
+    await this.stop();
   }
   resume() {
     for (const b of this.all())
