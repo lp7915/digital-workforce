@@ -66,9 +66,9 @@ test('参与其他项目不影响当前群的记忆范围，私聊仍只加载�
       ['memstore-project', 'memstore-self'],
     );
     state.projects[0].employees = [];
-    assert.throws(
-      () => memoryScope(state, ada.employeeId, { conversationId: 'oc_demo', conversationType: 'group' }),
-      /项目数字员工/,
+    assert.deepEqual(
+      memoryScope(state, ada.employeeId, { conversationId: 'oc_demo', conversationType: 'group' }).storeIds,
+      ['memstore-project', 'memstore-self'],
     );
     assert.deepEqual(
       memoryScope(state, ada.employeeId, { conversationId: 'dm', conversationType: 'direct' }).storeIds,

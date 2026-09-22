@@ -76,8 +76,6 @@ export class MemoryOrganizer {
     if (this.memories.workspace.tasks().find((t) => t.id === job.id)?.status === 'cancelled')
       throw new DomainError('整理任务已取消', 409);
     const project = this.memories.owner('projects', job.projectId);
-    if (!project.employees.some((e: any) => e.id === job.employeeId && e.permission === 'write'))
-      throw new DomainError('该数字员工没有项目记忆改写权限', 403);
     if (
       job.actorId !== 'local-admin' &&
       !project.members.some(

@@ -127,54 +127,36 @@ test('分页保留群主和管理员，过滤普通成员', async () => {
     f.workspace.close();
   }
 });
-test('真实入群使用服务端绑定 App ID，重复添加不重复关联', async () => {
+test('关联群聊通过飞书核验且不会添加机器人或项目员工', async () => {
   const f = fixture();
   try {
-    await f.service.add('oc_owner', 'e');
-    await f.service.add('oc_owner', 'e');
-    assert.deepEqual(f.workspace.read().state.groups[0].employeeIds, ['e']);
-    const call = f.calls.find((args) => args.includes('create'))!;
-    assert.deepEqual(JSON.parse(call[call.indexOf('--data') + 1]), { id_list: ['cli_bound'] });
-    assert.ok(call.includes('user'));
-  } finally {
-    f.workspace.close();
-  }
-});
-test('管理员权限撤回后不执行邀请', async () => {
-  const f = fixture();
-  try {
-    await f.service.import('oc_owner');
+    const current = f.workspace.read();
+    current.state.projects.push({
+      id: 'p',
+      name: '项目',
+      groups: [],
+      memoryStores: [],
+      memories: [],
+      members: [{ id: 'm', name: '负责人', account: 'local-admin', permission: 'manage' }],
+    });
+    f.workspace.save(current.state, current.revision);
+    await f.service.import('oc_owner', 'p');
+    await f.service.import('oc_owner', 'p');
+    assert.equal(f.workspace.read().state.groups.length, 1);
+    assert.equal(f.workspace.read().state.groups[0].projectId, 'p');
+    assert.deepEqual(f.workspace.read().state.groups[0].employeeIds, []);
+    assert.deepEqual(f.workspace.read().state.projects[0].employees, []);
     f.role('member');
-    await assert.rejects(f.service.add('oc_owner', 'e'), /管理权限/);
-    assert.ok(!f.calls.some((args) => args.includes('create')));
+    await assert.rejects(f.service.import('oc_owner', 'p'), /管理员/);
   } finally {
     f.workspace.close();
   }
 });
-test('远端失败、待审批及无效机器人均不写入关联', async () => {
+test('工作台禁用邀请机器人，且不请求飞书写接口', async () => {
   const f = fixture();
   try {
-    for (const response of [
-      new Error('远端失败'),
-      { pending_approval_id_list: ['cli_bound'] },
-      { invalid_id_list: ['cli_bound'] },
-    ]) {
-      f.response(response);
-      await assert.rejects(f.service.add('oc_owner', 'e'));
-      assert.equal(f.workspace.read().state.groups.length, 0);
-    }
-  } finally {
-    f.workspace.close();
-  }
-});
-test('未绑定或未知员工不能发起入群', async () => {
-  const f = fixture();
-  try {
-    await assert.rejects(f.service.add('oc_owner', 'unknown'), /数字员工/);
-    const service = new FeishuGroups(f.workspace, {
-      view: () => ({ status: 'awaiting_confirmation' }),
-    } as any);
-    await assert.rejects(service.add('oc_owner', 'e'), /飞书连接/);
+    await assert.rejects(f.service.add('oc_owner', 'e'), /仅查看/);
+    assert.equal(f.calls.length, 0);
   } finally {
     f.workspace.close();
   }

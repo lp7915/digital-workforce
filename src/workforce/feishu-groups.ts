@@ -97,11 +97,13 @@ export class FeishuGroups {
       pageToken: page.page_token || '',
     };
   }
-  async import(chatId: string) {
+  async import(chatId: string, projectId?: string) {
+    if (projectId !== undefined && !this.workspace.read().state.projects.some((p: any) => p.id === projectId))
+      throw new DomainError('项目不存在', 404);
     const user = await this.user();
     const chat = await this.detail(chatId, user.openId);
     if (!chat) throw new DomainError('当前用户不是该群的群主或管理员，或群已解散。', 403);
-    return this.persist(chat);
+    return this.persist(chat, undefined, projectId);
   }
   async members(groupId: string, pageToken = '') {
     if (pageToken.length > 4096) throw new DomainError('分页参数无效');
@@ -133,48 +135,26 @@ export class FeishuGroups {
       limited: Boolean(page.trigger_security_conf_limit),
     };
   }
-  private persist(chat: { chatId: string; name: string }, employeeId?: string) {
+  private persist(chat: { chatId: string; name: string }, employeeId?: string, projectId?: string) {
     const latest = this.workspace.read();
     let group = latest.state.groups.find((g: any) => g.chatId === chat.chatId);
     if (!group) {
       group = { id: randomUUID(), ...chat, projectId: '', employeeIds: [], source: 'feishu' };
       latest.state.groups.push(group);
     }
+    if (projectId !== undefined) {
+      if (!latest.state.projects.some((p: any) => p.id === projectId))
+        throw new DomainError('项目不存在', 404);
+      if (group.projectId && group.projectId !== projectId)
+        throw new DomainError('该群已关联其他项目，请先解除关联', 409);
+      group.projectId = projectId;
+    }
     group.name = chat.name;
     group.source = 'feishu';
     if (employeeId && !group.employeeIds.includes(employeeId)) group.employeeIds.push(employeeId);
     return this.workspace.save(latest.state, latest.revision);
   }
-  async add(chatId: string, employeeId: string) {
-    const state = this.workspace.read().state;
-    const group = state.groups.find((g: any) => g.chatId === chatId);
-    const project = state.projects.find((p: any) => p.id === group?.projectId);
-    if (project && !project.employees.some((e: any) => e.id === employeeId))
-      throw new DomainError('请先将数字员工加入该群所属项目');
-    const employee = this.workspace.read().state.employees.find((e: any) => e.id === employeeId);
-    if (!employee?.enabled) throw new DomainError('请选择已启用的数字员工');
-    const binding = this.channels.view(employeeId);
-    if (binding.status !== 'connected' || !binding.appId)
-      throw new DomainError('请先完成该数字员工的飞书连接');
-    const user = await this.user();
-    const chat = await this.detail(chatId, user.openId);
-    if (!chat) throw new DomainError('当前用户已无此群管理权限，无法添加数字员工。', 403);
-    const result = await this.call([
-      'chat.members',
-      'create',
-      '--chat-id',
-      chatId,
-      '--member-id-type',
-      'app_id',
-      '--succeed-type',
-      '2',
-      '--data',
-      JSON.stringify({ id_list: [binding.appId] }),
-    ]);
-    if (result.pending_approval_id_list?.length)
-      throw new DomainError('入群申请正在等待飞书审批，审批完成后请再次添加以启用服务。', 409);
-    if (result.invalid_id_list?.length || result.not_existed_id_list?.length)
-      throw new DomainError('机器人无法入群，请检查应用已发布且对当前用户可见。', 409);
-    return this.persist(chat, employeeId);
+  async add(_chatId: string, _employeeId: string) {
+    throw new DomainError('工作台仅查看，请在飞书中添加或移除机器人', 405);
   }
 }

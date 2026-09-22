@@ -21,8 +21,6 @@ export function memoryScope(
       : undefined;
   if (message.conversationType === 'group' && !group) throw new DomainError('群聊未关联此员工', 403);
   const project = group?.projectId ? state.projects.find((p: any) => p.id === group.projectId) : undefined;
-  if (project && !project.employees?.some((e: any) => e.id === employeeId))
-    throw new DomainError('该员工未加入项目数字员工名单，不能在此群加载项目记忆', 403);
   const owners = [employee, ...(project ? [project] : [])];
   const stores = owners.flatMap((o: any) => {
     if (o.memoryStores.length && o.memoryMode !== 'ma')

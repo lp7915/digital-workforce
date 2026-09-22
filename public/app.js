@@ -328,8 +328,7 @@ const employeeTabs = {
 };
 const projectTabs = {
   memories: '项目记忆',
-  employees: '数字员工',
-  groups: '项目群聊',
+  groups: '关联群聊',
   members: '成员与权限',
 };
 function route() {
@@ -798,7 +797,7 @@ async function browseFeishuGroups(more = false) {
       if (!feishuGroupsFound.some((g) => g.chatId === group.chatId)) feishuGroupsFound.push(group);
     modal(
       '从飞书选择群聊',
-      `<p class="muted">${esc(page.userName || '当前用户')} · 已检查 ${feishuScanned} 个群，找到 ${feishuGroupsFound.length} 个管理群</p>${feishuFailed ? `<p class="error">${feishuFailed} 个群读取失败，可关闭后重新拉取。</p>` : ''}<div class="grid compact-cards">${feishuGroupsFound.map((g) => `<article class="entity-card"><h3>${esc(g.name)}</h3><p class="muted">${g.role === 'owner' ? '群主' : '管理员'}</p>${data.groups.some((saved) => saved.chatId === g.chatId) ? '<span class="pill green">已添加到工作台</span>' : button('添加到工作台', 'import-feishu-group', g.chatId, true)}</article>`).join('')}</div>${!feishuGroupsFound.length ? '<p>本页暂无你管理的群聊。</p>' : ''}<div class="actions form-actions">${button('关闭', 'close')}${page.hasMore ? button('继续查找更多群聊', 'more-feishu-groups', '', true) : '<span class="muted">已检查全部群聊</span>'}</div>`,
+      `<p class="muted">${esc(page.userName || '当前用户')} · 已检查 ${feishuScanned} 个群，找到 ${feishuGroupsFound.length} 个管理群</p>${feishuFailed ? `<p class="error">${feishuFailed} 个群读取失败，可关闭后重新拉取。</p>` : ''}<div class="grid compact-cards">${feishuGroupsFound.map((g) => `<article class="entity-card"><h3>${esc(g.name)}</h3><p class="muted">${g.role === 'owner' ? '群主' : '管理员'}</p>${data.groups.some((saved) => saved.chatId === g.chatId && saved.projectId === route().id) ? '<span class="pill green">已关联</span>' : data.groups.some((saved) => saved.chatId === g.chatId && saved.projectId) ? '<span class="pill">已关联其他项目</span>' : button('关联到项目', 'import-feishu-group', g.chatId, true)}</article>`).join('')}</div>${!feishuGroupsFound.length ? '<p>本页暂无你管理的群聊。</p>' : ''}<div class="actions form-actions">${button('关闭', 'close')}${page.hasMore ? button('继续查找更多群聊', 'more-feishu-groups', '', true) : '<span class="muted">已检查全部群聊</span>'}</div>`,
     );
   } catch (error) {
     if (generation === groupLoadGeneration && $('#modal').open)
@@ -814,11 +813,11 @@ function groupDetail(group, section) {
     content = panel(
       '群信息',
       '查看群聊标识与项目关联。',
-      `<dl class="group-info"><dt>群聊名称</dt><dd>${esc(group.name)}</dd><dt>群聊 ID</dt><dd>${esc(group.chatId)}</dd><dt>来源</dt><dd>${group.source === 'feishu' ? '飞书群聊' : '本地登记'}</dd><dt>关联项目</dt><dd>${group.projectId ? `<a href="#projects/${esc(group.projectId)}">${esc(projectName(group.projectId))} →</a>` : '未关联项目'}</dd><dt>数字员工</dt><dd>${group.employeeIds.length} 位</dd></dl><div class="actions">${button('编辑群信息', 'manage-group', group.id)}</div>`,
+      `<dl class="group-info"><dt>群聊名称</dt><dd>${esc(group.name)}</dd><dt>群聊 ID</dt><dd>${esc(group.chatId)}</dd><dt>来源</dt><dd>${group.source === 'feishu' ? '飞书群聊' : '本地登记'}</dd><dt>关联项目</dt><dd>${group.projectId ? `<a href="#projects/${esc(group.projectId)}">${esc(projectName(group.projectId))} →</a>` : '未关联项目'}</dd><dt>数字员工</dt><dd>${group.employeeIds.length} 位</dd></dl><div class="actions"></div>`,
     );
   if (section === 'employees') {
     const employees = group.employeeIds.map((id) => data.employees.find((e) => e.id === id)).filter(Boolean);
-    content = `<div class="section-toolbar"><p class="muted">已关联 ${employees.length} 位数字员工</p>${button('＋ 添加数字员工', 'assign-group', group.id, true)}</div><div class="grid compact-cards">${employees.map((e) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◈</span>${badge(e.enabled ? '已启用' : '已停用', e.enabled ? 'green' : '')}</div><h3><a href="#employees/${esc(e.id)}">${esc(e.name)}</a></h3><p class="card-description">${esc(e.description || '暂无描述')}</p><div class="card-footer"><span>群数字员工</span><a href="#employees/${esc(e.id)}">查看详情 →</a></div></article>`).join('')}</div>${employees.length ? '' : empty('尚未添加数字员工', '可一次选择多位已连接飞书的员工。')}`;
+    content = `<div class="section-toolbar"><p class="muted">已关联 ${employees.length} 位数字员工</p></div><div class="grid compact-cards">${employees.map((e) => `<article class="entity-card"><div class="card-top"><span class="entity-icon">◈</span>${badge(e.enabled ? '已启用' : '已停用', e.enabled ? 'green' : '')}</div><h3><a href="#employees/${esc(e.id)}">${esc(e.name)}</a></h3><p class="card-description">${esc(e.description || '暂无描述')}</p><div class="card-footer"><span>群数字员工</span><a href="#employees/${esc(e.id)}">查看详情 →</a></div></article>`).join('')}</div>${employees.length ? '' : empty('尚未添加数字员工', '请在飞书中将机器人拉入群聊，收到事件后自动展示。')}`;
   }
   if (section === 'members')
     content = `<div class="section-toolbar"><p class="muted">飞书群成员（人员），数字员工请查看对应标签。</p>${button('刷新成员', 'refresh-group-members', group.id)}</div><div id="group-members-content" aria-live="polite"><p class="muted">正在读取群成员…</p></div>`;
@@ -863,12 +862,8 @@ let groupProjectFilter = '',
   groupEmployeeFilter = '';
 function groupsOverview() {
   return (
-    head(
-      '群聊',
-      '管理飞书群聊及服务员工，按项目组织协作。',
-      button('从飞书选择', 'browse-feishu-groups', '', true),
-    ) +
-    `<p class="demo-note">从飞书拉取你担任群主或管理员的群聊，添加数字员工后即可在群中 @ 机器人使用。</p><div class="toolbar"><span class="muted">共 ${data.groups.length} 个群聊</span>${select('项目', 'groupProjectFilter', groupProjectFilter, [['', '全部项目'], ['unassigned', '未关联项目'], ...data.projects.map((p) => [p.id, p.name])])}${select('数字员工', 'groupEmployeeFilter', groupEmployeeFilter, [['', '全部员工'], ...data.employees.map((e) => [e.id, e.name])])}<input id="search" class="search" aria-label="搜索群聊" placeholder="搜索群聊、项目或员工…" value="${esc(search)}" /></div><div class="grid compact-cards">${data.groups
+    head('群聊', '查看数字员工在哪些飞书群工作。', '') +
+    `<p class="demo-note">工作现场按机器人进退群事件同步。请在飞书中添加或移除机器人；项目关联在项目详情中维护。</p><div class="toolbar"><span class="muted">共 ${data.groups.length} 个群聊</span>${select('项目', 'groupProjectFilter', groupProjectFilter, [['', '全部项目'], ['unassigned', '未关联项目'], ...data.projects.map((p) => [p.id, p.name])])}${select('数字员工', 'groupEmployeeFilter', groupEmployeeFilter, [['', '全部员工'], ...data.employees.map((e) => [e.id, e.name])])}<input id="search" class="search" aria-label="搜索群聊" placeholder="搜索群聊、项目或员工…" value="${esc(search)}" /></div><div class="grid compact-cards">${data.groups
       .filter(
         (g) =>
           (!groupProjectFilter ||
@@ -877,7 +872,7 @@ function groupsOverview() {
       )
       .map(
         (group) =>
-          `<article class="entity-card" data-search="${esc([group.name, group.chatId, projectName(group.projectId), ...group.employeeIds.map(employeeName)].join(' '))}"><div class="card-top"><span class="entity-icon">☏</span>${badge(group.source === 'feishu' ? '飞书群聊' : '本地登记')}</div><h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">${group.projectId ? `<a href="#projects/${esc(group.projectId)}/groups">${esc(projectName(group.projectId))}</a>` : '未关联项目'}</p><p>服务员工 · ${esc(group.employeeIds.map((id) => employeeName(id) + (group.projectId && !data.projects.find((p) => p.id === group.projectId)?.employees.some((a) => a.id === id) ? '（未加入项目，不响应）' : '')).join('、') || '尚未配置')}</p><div class="actions">${button('＋ 添加数字员工', 'assign-group', group.id, true)}${button('编辑群聊', 'manage-group', group.id)}</div><div class="card-footer"><span>${group.employeeIds.length} 位数字员工</span><a href="#groups/${esc(group.id)}">查看详情 →</a></div></article>`,
+          `<article class="entity-card" data-search="${esc([group.name, group.chatId, projectName(group.projectId), ...group.employeeIds.map(employeeName)].join(' '))}"><div class="card-top"><span class="entity-icon">☏</span>${badge(group.source === 'feishu' ? '飞书群聊' : '本地登记')}</div><h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">${group.projectId ? `<a href="#projects/${esc(group.projectId)}/groups">${esc(projectName(group.projectId))}</a>` : '未关联项目'}</p><p>服务员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions"></div><div class="card-footer"><span>${group.employeeIds.length} 位数字员工</span><a href="#groups/${esc(group.id)}">查看详情 →</a></div></article>`,
       )
       .join(
         '',
@@ -1147,21 +1142,18 @@ function memoryList(owner, project) {
 }
 function projectDetail(p, section) {
   let content = '';
-  if (section === 'employees')
-    content = `<div class="section-toolbar"><p class="muted">项目员工加入后不会自动入群；群内仍按群所属项目加载记忆。</p>${button('＋ 添加数字员工', 'add-project-employee', '', true)}</div><div class="grid compact-cards">${(p.employees || []).map((a) => `<article class="entity-card"><h3><a href="#employees/${esc(a.id)}">${esc(employeeName(a.id))}</a></h3><p>${esc(a.role || '未设置项目职责')}</p><p class="muted">项目记忆 · ${a.permission === 'write' ? '允许整理改写' : '只读'}</p><div class="actions">${button('编辑', 'edit-project-employee', a.id)}${button('移出项目', 'remove-project-employee', a.id)}</div></article>`).join('')}</div>${p.employees?.length ? '' : empty('尚未添加数字员工', '先添加项目员工，再按需加入项目群聊。')}`;
-
   if (section === 'memories')
     content =
       `<div class="actions">${button('整理近期 Session', 'organize-memory', p.id)}</div>` +
       memoryList(p, true);
   if (section === 'groups')
-    content = `<div class="section-toolbar"><p class="muted">群内员工加载自身记忆和本项目记忆；关联变更后请使用 /new。</p><div class="actions">${button('＋ 关联已有群聊', 'link-project-group', '', true)}${button('从飞书选择', 'browse-feishu-groups')}</div></div><div class="grid compact-cards">${p.groups.map((group) => `<article class="entity-card"><span class="entity-icon">▦</span><h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">数字员工 · ${esc(group.employeeIds.map((id) => employeeName(id) + (group.projectId && !data.projects.find((p) => p.id === group.projectId)?.employees.some((a) => a.id === id) ? '（未加入项目，不响应）' : '')).join('、') || '尚未配置')}</p><div class="actions">${button('＋ 添加数字员工', 'assign-group', group.id)}${button('编辑', 'edit-group', group.id)}${button('解除关联', 'remove-group', group.id)}</div></article>`).join('')}</div>${!p.groups.length ? empty('尚未关联群聊', '将群聊关联到项目，组织项目协作。') : ''}`;
+    content = `<div class="section-toolbar"><p class="muted">群内员工加载自身记忆和本项目记忆；关联变更后请使用 /new。</p><div class="actions">${button('＋ 从飞书关联群聊', 'browse-feishu-groups', '', true)}</div></div><div class="grid compact-cards">${p.groups.map((group) => `<article class="entity-card"><span class="entity-icon">▦</span><h3><a href="#groups/${esc(group.id)}">${esc(group.name)}</a></h3><p class="card-description">${esc(group.chatId)}</p><p class="muted">数字员工 · ${esc(group.employeeIds.map(employeeName).join('、') || '尚未配置')}</p><div class="actions">${button('解除关联', 'remove-group', group.id)}</div></article>`).join('')}</div>${!p.groups.length ? empty('尚未关联群聊', '将群聊关联到项目，组织项目协作。') : ''}`;
   if (section === 'members')
     content = `<div class="section-toolbar"><p class="muted">管理谁可以查看、改写记忆，以及维护成员。</p>${button('＋ 添加成员', 'add-member', '', true)}</div><div class="permission-legend"><span><b>查看</b> 只读项目记忆</span><span><b>改写</b> 可新增、编辑和删除记忆</span><span><b>管理</b> 改写记忆及管理成员</span></div><p class="demo-note">后台使用本机管理员身份；群里触发记忆整理时，将按消息发送者的飞书用户 ID 校验改写权限。</p><div class="grid compact-cards">${p.members.map((member) => `<article class="entity-card"><div class="card-top"><span class="member-avatar">${esc(member.name.slice(0, 1))}</span>${badge({ read: '查看', write: '改写', manage: '管理' }[member.permission])}</div><h3>${esc(member.name)}</h3><p class="card-description">${esc(member.account)}</p><div class="actions">${button('修改权限', 'edit-member', member.id)}${button('移除', 'remove-member', member.id)}</div></article>`).join('')}</div>`;
   return (
     '<a class="back" href="#projects">← 项目</a>' +
     head(p.name, p.description, button('编辑项目', 'edit-project')) +
-    `<div class="employee-summary"><span>项目记忆库<b>${p.memoryStores.length}</b></span><span>数字员工<b>${p.employees.length}</b></span><span>群聊<b>${p.groups.length}</b></span><span>成员<b>${p.members.length}</b></span></div>` +
+    `<div class="employee-summary"><span>项目记忆库<b>${p.memoryStores.length}</b></span><span>群聊<b>${p.groups.length}</b></span><span>成员<b>${p.members.length}</b></span></div>` +
     tabs('projects', p.id, projectTabs, section) +
     content
   );
@@ -1286,56 +1278,6 @@ function editDialog(kind, item = {}) {
       field('标题（可选）', 'title', item.title) +
       field('来源说明', 'source', item.source);
   }
-  if (kind === 'group') {
-    title = item.id ? '编辑群聊' : '关联群聊';
-    fields =
-      field('群聊名称', 'name', item.name, '填写群聊名称', true) +
-      field('群聊 ID', 'chatId', item.chatId, 'oc_…', true) +
-      select('关联项目', 'projectId', item.projectId || owner?.id || '', [
-        ['', '暂不关联项目'],
-        ...data.projects.map((project) => [project.id, project.name]),
-      ]);
-  }
-  if (kind === 'group-employees') {
-    title = '添加数字员工 · ' + item.name;
-    fields =
-      '<p class="muted">可同时选择多个数字员工，逐一将其机器人添加到飞书群。已添加的员工会保留。</p>' +
-      `<fieldset class="employee-picker"><legend>选择数字员工（可多选）</legend>${
-        (item.availableEmployees || [])
-          .map((e) => {
-            const added = item.employeeIds.includes(e.id);
-            return `<label class="employee-choice"><input type="checkbox" name="employeeIds" value="${esc(e.id)}" ${added ? 'checked disabled' : ''} /><span>${esc(e.name)}</span><small data-employee-result>${added ? '已添加' : '已连接飞书'}</small></label>`;
-          })
-          .join('') || '<p class="muted">暂无可添加的员工，请先完成员工的飞书连接。</p>'
-      }</fieldset>`;
-  }
-  if (kind === 'project-employee') {
-    title = item.id ? '编辑项目数字员工' : '添加项目数字员工';
-    fields =
-      select(
-        '数字员工',
-        'employeeId',
-        item.id || '',
-        data.employees
-          .filter((e) => e.id === item.id || !(owner.employees || []).some((a) => a.id === e.id))
-          .map((e) => [e.id, e.name]),
-      ) +
-      area('项目职责', 'role', item.role || '', 3) +
-      select('项目记忆权限', 'permission', item.permission || 'read', [
-        ['read', '只读'],
-        ['write', '允许整理改写'],
-      ]);
-  }
-  if (kind === 'project-group') {
-    title = '关联已有群聊';
-    fields =
-      select(
-        '群聊',
-        'groupId',
-        '',
-        data.groups.filter((g) => !g.projectId).map((g) => [g.id, g.name]),
-      ) + '<p class="muted">只列出未关联项目的群。关联后在群内使用 /new 加载项目记忆。</p>';
-  }
   if (kind === 'member') {
     title = item.id ? '修改成员权限' : '添加成员';
     fields =
@@ -1447,59 +1389,18 @@ document.addEventListener('click', async (event) => {
   if (action === 'import-feishu-group') {
     target.disabled = true;
     try {
-      acceptServer(await request('/feishu-groups', 'POST', { chatId: id }));
+      acceptServer(await request('/feishu-groups', 'POST', { chatId: id, projectId: route().id }));
       closeModal();
       render();
-      toast('群聊已添加，可继续添加数字员工');
+      toast('群聊已关联项目，请在飞书中添加机器人');
     } catch (error) {
       toast(error.message);
       target.disabled = false;
     }
     return;
   }
-  if (action === 'add-project-employee') return editDialog('project-employee');
-  if (action === 'edit-project-employee')
-    return editDialog(
-      'project-employee',
-      owner.employees.find((a) => a.id === id),
-    );
-  if (action === 'link-project-group') return editDialog('project-group');
-  if (action === 'confirm-remove-project-employee') {
-    if (owner.groups.some((g) => g.employeeIds.includes(id)))
-      return toast('员工仍在项目群中，请先在飞书移出机器人或解除群的项目关联');
-    owner.employees = owner.employees.filter((a) => a.id !== id);
-    closeModal();
-    return commit('已移出项目');
-  }
-  if (action === 'new-group') return editDialog('group');
   if (action === 'refresh-group-members') return loadGroupMembers(id);
   if (action === 'more-group-members') return loadGroupMembers(id, true);
-  if (action === 'assign-group') {
-    target.disabled = true;
-    try {
-      const result = await request('/feishu-groups/employees');
-      editDialog('group-employees', {
-        ...data.groups.find((group) => group.id === id),
-        availableEmployees: result.employees.filter((e) => {
-          const group = data.groups.find((g) => g.id === id);
-          const project = data.projects.find((p) => p.id === group?.projectId);
-          return !project || project.employees.some((a) => a.id === e.id);
-        }),
-      });
-      if (!result.employees.length)
-        $('#dialog-feedback').textContent = '暂无已连接飞书的员工，请先在数字员工详情中完成飞书连接。';
-    } catch (error) {
-      toast(error.message);
-    } finally {
-      target.disabled = false;
-    }
-    return;
-  }
-  if (action === 'manage-group')
-    return editDialog(
-      action === 'manage-group' ? 'group' : 'group-employees',
-      data.groups.find((group) => group.id === id),
-    );
   if (action === 'cancel-task') {
     try {
       await request(`/tasks/${encodeURIComponent(id)}/cancel`, 'POST', {});
@@ -1555,7 +1456,7 @@ document.addEventListener('click', async (event) => {
     if (owner.memoryMode !== 'ma' || !owner.memoryStores.length) return toast('请先创建 MA 项目记忆库');
     modal(
       '整理近期项目 Session',
-      `<form id="organize-memory-form" data-project-id="${esc(owner.id)}" data-request-id="${uid()}"><p class="muted">独立 MA Agent 整理最近 7 天、最多 10 个已完成的项目 Session，直接写入目标 MA 记忆库。可在任务页查看结果。</p>${select(
+      `<form id="organize-memory-form" data-project-id="${esc(owner.id)}" data-request-id="${uid()}"><p class="muted">整理最近 7 天、最多 10 个已完成的群聊 Session：人的姓名、职能和协作特点写入数字员工自己的记忆；群里发生的事情、决策与进展写入下方项目记忆库。可在任务页分别查看结果。</p>${select(
         '数字员工',
         'employeeId',
         '',
@@ -1563,7 +1464,7 @@ document.addEventListener('click', async (event) => {
           .filter((e) => owner.groups.some((g) => g.employeeIds.includes(e.id)))
           .map((e) => [e.id, e.name]),
       )}${select(
-        '目标记忆库',
+        '事情记忆库（项目）',
         'storeId',
         selectedMemoryStore,
         owner.memoryStores.map((s) => [s.id, s.name]),
@@ -1641,11 +1542,6 @@ document.addEventListener('click', async (event) => {
     editingMemory = true;
     return render();
   }
-  if (action === 'edit-group')
-    return editDialog(
-      'group',
-      owner.groups.find((m) => m.id === id),
-    );
   if (action === 'edit-member')
     return editDialog(
       'member',
@@ -1686,10 +1582,15 @@ document.addEventListener('click', async (event) => {
     );
   if (action.startsWith('confirm-remove-') || action === 'confirm-delete-memory') {
     if (action === 'confirm-remove-group') {
-      data.groups.find((group) => group.id === id).projectId = '';
-      syncProjectGroups(data);
-      closeModal();
-      return commit('项目关联已解除，群聊仍保留在群聊列表');
+      try {
+        acceptServer(await request(`/projects/${owner.id}/groups/${id}`, 'DELETE', {}));
+        closeModal();
+        render();
+        toast('已解除项目关联，保留在群状态');
+      } catch (error) {
+        toast(error.message);
+      }
+      return;
     }
     const collection = {
       'confirm-remove-group': 'groups',
@@ -1861,84 +1762,6 @@ document.addEventListener('submit', async (event) => {
       toast(error.message);
     } finally {
       submit.disabled = false;
-    }
-    return;
-  }
-  if (kind === 'project-employee') {
-    if (!values.employeeId) return toast('请选择数字员工');
-    const assignment = { id: values.employeeId, role: values.role, permission: values.permission };
-    owner.employees ||= [];
-    if (id)
-      Object.assign(
-        owner.employees.find((a) => a.id === id),
-        assignment,
-      );
-    else owner.employees.push(assignment);
-  }
-  if (kind === 'project-group') {
-    const group = data.groups.find((g) => g.id === values.groupId);
-    if (!group || group.projectId) return toast('请选择未关联项目的群聊');
-    group.projectId = owner.id;
-    syncProjectGroups(data);
-  }
-  if (kind === 'group') {
-    if (!values.name || !values.chatId) return toast('请补全群聊信息');
-    if (data.groups.some((group) => group.chatId === values.chatId && group.id !== id))
-      return toast('此群聊已登记，请在群聊列表中编辑');
-    if (id)
-      Object.assign(
-        data.groups.find((group) => group.id === id),
-        values,
-      );
-    else data.groups.push({ id: uid(), ...values, employeeIds: [], source: 'manual' });
-    syncProjectGroups(data);
-  }
-  if (kind === 'group-employees') {
-    const selected = [...form.querySelectorAll('input[name="employeeIds"]:checked:not(:disabled)')];
-    if (!selected.length) return toast('请选择至少一位尚未添加的数字员工');
-    const submit = form.querySelector('[type="submit"]');
-    submit.disabled = true;
-    const choices = [...form.querySelectorAll('input[name="employeeIds"]:not(:disabled)')];
-    choices.forEach((input) => {
-      input.disabled = true;
-    });
-    const succeeded = new Set();
-    const failures = [];
-    try {
-      const group = data.groups.find((group) => group.id === id);
-      for (const [index, input] of selected.entries()) {
-        submit.textContent = `正在添加 ${index + 1}/${selected.length}`;
-        const resultLabel = input.closest('label').querySelector('[data-employee-result]');
-        resultLabel.textContent = '正在添加…';
-        try {
-          acceptServer(
-            await request('/feishu-groups/employees', 'POST', {
-              chatId: group.chatId,
-              employeeId: input.value,
-            }),
-          );
-          succeeded.add(input.value);
-          resultLabel.textContent = '已添加';
-        } catch (error) {
-          failures.push(`${employeeName(input.value)}：${error.message}`);
-          resultLabel.textContent = '添加失败，可重试';
-        }
-      }
-      render();
-      if (failures.length) {
-        toast(`已添加 ${succeeded.size} 位，${failures.length} 位未完成。${failures.join('；')}`);
-      } else {
-        closeModal();
-        toast(`${succeeded.size} 位数字员工已加入飞书群，可在群中 @ 使用`);
-      }
-    } catch (error) {
-      toast(error.message);
-    } finally {
-      choices.forEach((input) => {
-        input.disabled = succeeded.has(input.value);
-      });
-      submit.disabled = false;
-      submit.textContent = failures.length ? '重试所选员工' : '确认添加到飞书群';
     }
     return;
   }

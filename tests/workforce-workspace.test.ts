@@ -145,7 +145,8 @@ test('工作台 HTTP 保存、读取和任务执行贯通，跨站和非法写�
   try {
     assert.equal((await (await call('')).json()).initialized, false);
     assert.equal((await call('', 'PUT', { state: state(), revision: 0 }, 'https://evil.test')).status, 403);
-    assert.equal((await call('', 'PUT', { state: state(), revision: 0 })).status, 200);
+    assert.equal((await call('', 'PUT', { state: state(), revision: 0 })).status, 403);
+    workspace.save(state(), 0);
     assert.equal((await call('', 'PUT', { state: state(), revision: 0 })).status, 409);
     assert.equal((await call('', 'PUT', { state: {}, revision: 1 })).status, 400);
     const response = await call('/tasks', 'POST', {

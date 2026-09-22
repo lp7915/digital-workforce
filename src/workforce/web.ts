@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Workforce, DomainError, type Principal, type Job, type Memory, type Turn } from './domain.ts';
 import { LocalLab } from './lab.ts';
-import { LocalWorkspace } from './workspace.ts';
+import { LocalWorkspace, normalizeGroups } from './workspace.ts';
 import type { WorkspaceChannels } from './channels.ts';
 import type { MaConfiguration } from './ma-config.ts';
 import type { FeishuGroups } from './feishu-groups.ts';
@@ -195,7 +195,8 @@ export async function createWeb(
           if (method === 'POST') {
             const input = await body(req);
             if (typeof input.chatId !== 'string') throw new DomainError('请选择飞书群聊');
-            return json(res, await options.feishuGroups.import(input.chatId));
+            if (typeof input.projectId !== 'string' || !input.projectId) throw new DomainError('请选择项目');
+            return json(res, await options.feishuGroups.import(input.chatId, input.projectId));
           }
         }
         const groupMembers = path.match(/^\/api\/workspace\/groups\/([^/]+)\/members$/);
@@ -207,13 +208,20 @@ export async function createWeb(
               url.searchParams.get('pageToken') || '',
             ),
           );
-        if (path === '/api/workspace/feishu-groups/employees' && options.feishuGroups && method === 'GET')
-          return json(res, { employees: options.feishuGroups.employees() });
-        if (path === '/api/workspace/feishu-groups/employees' && options.feishuGroups && method === 'POST') {
-          const input = await body(req);
-          if (typeof input.chatId !== 'string' || typeof input.employeeId !== 'string')
-            throw new DomainError('请选择群聊和数字员工');
-          return json(res, await options.feishuGroups.add(input.chatId, input.employeeId));
+        if (path === '/api/workspace/feishu-groups/employees')
+          throw new DomainError('请在飞书中添加或移除机器人，工作台仅同步展示', 405);
+        const unlinkGroup = path.match(/^\/api\/workspace\/projects\/([^/]+)\/groups\/([^/]+)$/);
+        if (unlinkGroup && method === 'DELETE') {
+          await body(req);
+          const current = workspace.read();
+          const group = current.state.groups.find(
+            (g: any) =>
+              g.id === decodeURIComponent(unlinkGroup[2]) &&
+              g.projectId === decodeURIComponent(unlinkGroup[1]),
+          );
+          if (!group) throw new DomainError('项目群聊不存在', 404);
+          group.projectId = '';
+          return json(res, workspace.save(current.state, current.revision));
         }
         if (path === '/api/workspace/ma-config' && options.maConfig) {
           if (method === 'GET') return json(res, options.maConfig.status());
@@ -252,6 +260,13 @@ export async function createWeb(
         if (path === '/api/workspace' && method === 'GET') return json(res, workspace.read());
         if (path === '/api/workspace' && method === 'PUT') {
           const input = await body(req, 4 * 1024 * 1024);
+          const current = workspace.read();
+          if (input?.revision !== current.revision)
+            throw new DomainError('数据已被其他页面修改，请刷新后重试', 409);
+          if (!input?.state || !Array.isArray(input.state.projects)) throw new DomainError('工作台格式无效');
+          const normalized = normalizeGroups(structuredClone(input.state));
+          if (JSON.stringify(normalized.groups || []) !== JSON.stringify(current.state.groups))
+            throw new DomainError('群聊关系只能通过飞书查询关联或机器人事件更新', 403);
           return json(res, workspace.save(input?.state, input?.revision));
         }
         if (path === '/api/workspace/tasks' && method === 'GET')

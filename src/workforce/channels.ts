@@ -497,12 +497,7 @@ export class WorkspaceChannels {
         (g: any) => g.chatId === message.conversationId && g.employeeIds.includes(b.employeeId),
       );
       if (!group) return false;
-      if (!group.projectId) return true;
-      return Boolean(
-        state.projects
-          .find((p: any) => p.id === group.projectId)
-          ?.employees.some((e: any) => e.id === b.employeeId),
-      );
+      return true;
     };
     const memory = new SessionMemory(
       this.workspace,
@@ -564,7 +559,7 @@ export class WorkspaceChannels {
             message.senderId,
             message.conversationId,
           );
-          return `已提交项目记忆整理任务：${job.id}。目标库：${project.memoryStores[0].name}。可在后台「运行中的任务」查看进度和结果。`;
+          return `已提交项目记忆整理任务：${job.id}。人的记忆保存到数字员工记忆，事情的记忆保存到项目库「${project.memoryStores[0].name}」。可在后台「运行中的任务」查看进度和结果。`;
         },
         afterBusinessTurn: async (message, failed) => {
           if (failed || !store.inbox.findMessage(message)?.replyConfirmed) return;
