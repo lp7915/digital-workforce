@@ -77,11 +77,11 @@ test("quotation lookup on direct chat is wired even without recent-history loadi
   assert.equal(calls, 1); assert.match(h.inputs[0], /需要摘要吗/);
 });
 
-test("quote cache is scoped by application, tenant, chat and thread", t => {
+test("group quote cache is scoped by application, chat and thread", t => {
   const store = new GatewayStore(":memory:"); t.after(() => store.close());
   const trigger = message("now", { threadId: "current" });
   const quote: ChannelHistoryMessage = { messageId: "q", senderId: "u", senderType: "user", source: "chat", createTime: 50, text: "private" };
-  for (const override of [{ installationId: "other" }, { tenantId: "other" }, { conversationId: "other" }]) store.cacheHistory({ ...trigger, ...override }, [quote]);
+  for (const override of [{ installationId: "other" }, { conversationId: "other" }]) store.cacheHistory({ ...trigger, ...override }, [quote]);
   store.cacheHistory(trigger, [{ ...quote, source: "thread", threadId: "other" }]);
   assert.equal(store.cachedMessage(trigger, "q"), undefined);
 });

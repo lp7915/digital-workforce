@@ -22,6 +22,7 @@ import { parseStoredFileObservation, sanitizeFileObservation, type RunFileObserv
 export type StoredAttachment = { fileId?: string; inlineText?: string; name: string; mountPath: string; bytes: number; sha256?: string };
 
 export type ConversationKey = {
+  sharedGroup?: boolean;
   channelType: string;
   installationId: string;
   tenantId: string;
@@ -83,6 +84,7 @@ export class GatewayStore {
     this.db.exec(`
       PRAGMA journal_mode = WAL;
       PRAGMA secure_delete = ON;
+      CREATE TABLE IF NOT EXISTS shared_group_routes (canonical TEXT PRIMARY KEY, selected_key TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS conversations (
         conversation_key TEXT PRIMARY KEY,
         session_id TEXT NOT NULL,
@@ -197,6 +199,53 @@ export class GatewayStore {
     if (!hadDispatchMetadata) this.db.prepare("UPDATE processed_events SET dispatched = 1 WHERE status IN ('processing', 'failed')").run();
     this.ensureColumn("processed_events", "attempts", "INTEGER NOT NULL DEFAULT 1");
     if (path !== ":memory:") try { chmodSync(path, 0o600); } catch { /* directory permissions remain the outer boundary */ }
+  }
+
+  sharedGroupKey(key: ConversationKey): ConversationKey {
+    const prefix = [key.channelType, key.installationId].map(escapeKeyPart).join(":") + ":";
+    const route = this.db.prepare("SELECT selected_key FROM shared_group_routes WHERE canonical=?").get(this.conversationKey(key));
+    if (route) return JSON.parse(String(route.selected_key)) as ConversationKey;
+    const candidates = new Set<string>();
+    const rows = this.db.prepare(`SELECT conversation_key AS scope FROM conversations WHERE substr(conversation_key,1,?)=?
+      UNION SELECT scope FROM gateway_message_inbox WHERE channel_type=? AND installation_id=?
+      UNION SELECT scope FROM gateway_session_creations WHERE substr(scope,1,?)=?`)
+      .all(prefix.length, prefix, key.channelType, key.installationId, prefix.length, prefix);
+    for (const row of rows) {
+      const scope = String(row.scope);
+      let parts: string[];
+      try { parts = scope.split(":").map(decodeURIComponent); } catch { continue; }
+      if (parts.length === 6 && parts[0] === key.channelType && parts[1] === key.installationId
+        && parts[3] === key.conversationId && parts[4] === (key.threadId || "-") && parts[5] === "-") candidates.add(scope);
+    }
+    // 唯一旧分支保持原 key，连同 Session、密文 AAD 和未完成任务证据一起复用。
+    // 多分支不能猜测谁是主会话，更不能把既有任务静默重放到另一 Session。
+    if (candidates.size > 1) throw new Error("该群或话题存在多个历史会话分支，请管理员核查并处理旧分支后再继续；本次消息未入队，未重跑旧任务。");
+    if (candidates.size === 1) {
+      const parts = [...candidates][0].split(":").map(decodeURIComponent);
+      return { ...key, tenantId: parts[2], ...(parts[2] !== "@shared-group" ? { sharedGroup: true } : {}) };
+    }
+    return key;
+  }
+
+  selectSharedGroupSession(key: ConversationKey, sessionId: string): void {
+    this.assertRuntimeLock();
+    if (key.tenantId !== "@shared-group" || key.senderId !== "") throw new Error("只允许选择共享群会话");
+    const matches = (scope: string) => {
+      const parts = scope.split(":").map(decodeURIComponent);
+      return parts.length === 6 && parts[0] === key.channelType && parts[1] === key.installationId
+        && parts[3] === key.conversationId && parts[4] === (key.threadId || "-") && parts[5] === "-";
+    };
+    const pending = this.db.prepare("SELECT scope FROM gateway_message_inbox WHERE channel_type=? AND installation_id=? AND state NOT IN ('completed','failed')")
+      .all(key.channelType, key.installationId);
+    const creations = this.db.prepare("SELECT scope FROM gateway_session_creations WHERE state='pending'").all();
+    if ([...pending, ...creations].some(row => matches(String(row.scope)))) throw new Error("仍有未处理或排队任务，必须先核查旧运行并处理任务；未选择主会话");
+    const rows = this.db.prepare("SELECT conversation_key FROM conversations WHERE session_id=?").all(sessionId)
+      .filter(row => matches(String(row.conversation_key)));
+    if (rows.length !== 1) throw new Error("目标 Session 不属于此群话题或存在歧义");
+    const parts = String(rows[0].conversation_key).split(":").map(decodeURIComponent);
+    const selected = { ...key, tenantId: parts[2], sharedGroup: true };
+    this.db.prepare("INSERT INTO shared_group_routes VALUES (?, ?) ON CONFLICT(canonical) DO UPDATE SET selected_key=excluded.selected_key")
+      .run(this.conversationKey(key), JSON.stringify(selected));
   }
 
   conversationKey(key: ConversationKey): string {
@@ -586,12 +635,12 @@ export class GatewayStore {
   }
 
   private historyScope(message: ChannelMessage): string {
-    return JSON.stringify([message.channelType, message.installationId, message.tenantId, message.conversationId]);
+    return JSON.stringify([message.channelType, message.installationId, message.conversationType === "group" ? "@shared-group" : message.tenantId, message.conversationId]);
   }
 
   cacheHistory(message: ChannelMessage, items: ChannelHistoryMessage[]): void {
     const scope = this.historyScope(message);
-    const insert = this.db.prepare(`INSERT INTO channel_history VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(scope, message_id) DO UPDATE SET payload = excluded.payload, saved_at = excluded.saved_at
+    const insert = this.db.prepare(`INSERT INTO channel_history VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(scope, message_id) DO UPDATE SET payload = excluded.payload, thread_id = excluded.thread_id, saved_at = excluded.saved_at
       WHERE COALESCE(json_extract(excluded.payload, '$.updateTime'), excluded.create_time) >= COALESCE(json_extract(channel_history.payload, '$.updateTime'), channel_history.create_time)`);
     for (const item of items) insert.run(scope, item.messageId, item.threadId || (item.source === "thread" ? message.threadId : ""), item.createTime, JSON.stringify(item), Date.now());
     this.db.prepare("DELETE FROM channel_history WHERE scope = ? AND message_id NOT IN (SELECT message_id FROM channel_history WHERE scope = ? ORDER BY create_time DESC LIMIT 2000)").run(scope, scope);
@@ -605,7 +654,7 @@ export class GatewayStore {
   }
 
   cachedMessage(message: ChannelMessage, messageId: string): ChannelHistoryMessage | undefined {
-    // 引用可在窗口外，但不能跨应用、租户、群或其他话题取缓存。
+    // 引用可在窗口外；群内跨发言者企业共享，仍禁止跨应用、群或其他话题，私聊保留租户隔离。
     const row = this.db.prepare(`SELECT payload FROM channel_history WHERE scope = ? AND message_id = ? AND create_time <= ?
       AND (thread_id = '' OR thread_id = ?)`).get(this.historyScope(message), messageId, message.createTime, message.threadId) as { payload: string } | undefined;
     return row ? JSON.parse(row.payload) as ChannelHistoryMessage : undefined;

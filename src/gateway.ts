@@ -163,6 +163,14 @@ export class Gateway {
     if (!shouldHandleMessage(message)) return false;
     const control = (message.text.trim() === "/auth status" && this.options.authorizationStatus)
       || (message.conversationType === "direct" && message.text.trim() === "/auth cancel" && this.options.cancelAuthorization);
+    if (this.options.sharedGroupSessions && message.conversationType === "group") {
+      try { this.conversationKey(message); }
+      catch (error) {
+        void this.replyText(message, error instanceof Error ? error.message : "群会话分组核查失败，本次消息未入队")
+          .catch(() => console.warn("发送群会话分支冲突提示失败"));
+        return false;
+      }
+    }
     if (this.options.durableQueue && !control) {
       const task = this.store.receiveMessage(message, this.inboxBinding(message));
       if (!task) return false;
@@ -376,7 +384,10 @@ export class Gateway {
     for (const task of pending.awaitingAuthorization) {
       if (!this.store.settleAuthorizationMessage(task.message)) this.queue.pause(task.binding.scope);
     }
-    for (const task of pending.queued) this.scheduleInboxTask(task);
+    for (const task of pending.queued) {
+      try { this.scheduleInboxTask(task); }
+      catch { console.warn("旧排队任务的群会话分支冲突，保留记录，未自动重放"); }
+    }
     const batchKey = JSON.stringify([channelType, installationId]);
     if ((this.ark.inspectRun || this.ark.inspectSessionReadiness || this.ark.inspectSessionCreation) && pending.interrupted.length && !this.inboxRecoveryBatches.has(batchKey)) {
       // 恢复查询逐个执行，避免启动时对MA产生并发查询风暴；其他scope的正常业务不被暂停。
@@ -783,7 +794,8 @@ export class Gateway {
   }
 
   private conversationKey(message: IncomingMessage): ConversationKey {
-    return toConversationKey(message, Boolean(this.options.sharedGroupSessions));
+    const key = toConversationKey(message, Boolean(this.options.sharedGroupSessions));
+    return this.options.sharedGroupSessions && message.conversationType === "group" ? this.store.sharedGroupKey(key) : key;
   }
 
   private async recoverSessionCreation(message: IncomingMessage, key: ConversationKey): Promise<SessionCreationRecord | undefined> {
@@ -2036,7 +2048,7 @@ export function toConversationKey(message: IncomingMessage, sharedGroupSessions 
   return {
     channelType: message.channelType,
     installationId: message.installationId,
-    tenantId: message.tenantId,
+    tenantId: sharedGroupSessions && message.conversationType === "group" ? "@shared-group" : message.tenantId,
     conversationId: message.conversationId,
     threadId: message.threadId,
     senderId: sharedGroupSessions && message.conversationType === "group" ? "" : message.senderId
